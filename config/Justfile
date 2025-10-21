@@ -1,0 +1,25 @@
+build-manifest output:
+	rm -f -- '{{output}}'
+	cat manifests/namespace.yaml >> '{{output}}'
+	echo "---" >> '{{output}}'
+	cat manifests/postgres.yaml >> '{{output}}'
+	echo "---" >> '{{output}}'
+	helm template regions oci://ghcr.io/formancehq/helm/regions --version 2.15.2 --namespace formance-systems >> '{{output}}'
+	echo "---" >> '{{output}}'
+	cat manifests/stack.yaml >> '{{output}}'
+	echo "---" >> '{{output}}'
+	yq '.spec.version = strenv(LEDGER_PREVIOUS_TAG)' manifests/ledger.yaml >> '{{output}}'
+	echo "---" >> '{{output}}'
+	cat manifests/workload.yaml >> '{{output}}'
+
+push:
+	#!/usr/bin/env bash
+
+	set -euxo pipefail
+	tmpdir=$(mktemp -d)
+	trap 'rm -rf $tmpdir' EXIT
+
+	just build-manifest "$tmpdir/resources.yaml"
+
+	docker build -f Dockerfile.config -t $ANTITHESIS_REPOSITORY/antithesis-config:daily_run $tmpdir
+	docker push $ANTITHESIS_REPOSITORY/antithesis-config:daily_run

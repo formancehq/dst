@@ -1,0 +1,15 @@
+push:
+	#!/usr/bin/env bash
+
+	set -euxo pipefail
+	tmpdir=$(mktemp -d)
+	trap 'rm -rf $tmpdir' EXIT
+	scriptdir=$(pwd)
+
+	cd "$tmpdir"
+
+	wget -O ledger.tar.gz "https://github.com/formancehq/ledger/archive/refs/tags/$LEDGER_TAG.tar.gz"
+	tar xf ledger.tar.gz --transform='s|^[^/]*|src|'
+	cp "$scriptdir/entrypoint.sh" src/entrypoint.sh
+	docker build -f $scriptdir/Dockerfile -t "ghcr.io/formancehq/ledger-instrumented:$LEDGER_TAG" src
+	docker push "ghcr.io/formancehq/ledger-instrumented:$LEDGER_TAG"
