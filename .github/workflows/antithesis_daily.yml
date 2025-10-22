@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       run_tests:
-        description: "Run Antithesis tests after pushing images"
+        description: "Run Antithesis tests"
         type: boolean
         default: true
   pull_request:
