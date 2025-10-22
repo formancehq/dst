@@ -34,6 +34,7 @@ func main() {
 			defer wg.Done()
 			checkBalanced(ctx, client, ledger)
 			checkAccountBalances(ctx, client, ledger)
+			checkNeverAccounts(ctx, client, ledger)
 		}(ledger.Name)
 	}
 	wg.Wait()
@@ -84,25 +85,33 @@ func checkAccountBalances(ctx context.Context, client *client.Formance, ledger s
 		if err != nil {
 			continue
 		}
-		zero := big.NewInt(0)
-		for asset, volume := range account.V2AccountResponse.Data.Volumes {
-			balance := new(big.Int).Set(volume.Input)
-			balance.Sub(balance, volume.Output)
-			assert.Always(balance.Cmp(volume.Balance) == 0, "Reported balance and volumes should be consistent", internal.Details{
-				"ledger": ledger,
-				"address": address,
-				"asset": asset,
-				"volume": volume,
-			})
-			assert.Always(volume.Balance.Cmp(zero) != -1, "Balance should stay positive when no overdraft is allowed", internal.Details{
-				"ledger": ledger,
-				"address": address,
-				"asset": asset,
-				"volume": volume,
-			})
-		}
-		
+		internal.CheckVolumes(account.V2AccountResponse.Data.Volumes, nil, internal.Details{
+			"ledger": ledger,
+			"address": address,
+		})
 	}
 
 	log.Printf("composer: account balances check: done for ledger %s", ledger)
+}
+
+func checkNeverAccounts(ctx context.Context, client *client.Formance, ledger string) {
+	txs, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
+		Ledger:      ledger,
+		RequestBody: map[string]interface{}{
+			"$match": map[string]any{
+				"address": "never:",
+			},
+		},
+	})
+	assert.Sometimes(err == nil, "should be able to get the latest transaction", internal.Details {
+		"error": err,
+	})
+	if err != nil {
+		return
+	}
+
+	assert.Always(len(txs.V2TransactionsCursorResponse.Cursor.Data) == 0, "no transaction should involve never:* accounts", internal.Details {
+		"ledger": ledger,
+		"transactions": txs.V2TransactionsCursorResponse.Cursor.Data,
+	})
 }

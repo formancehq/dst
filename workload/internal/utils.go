@@ -3,46 +3,21 @@ package internal
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
-	"github.com/formancehq/go-libs/v2/time"
 	client "github.com/formancehq/formance-sdk-go/v3"
-	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 )
-
-const USER_ACCOUNT_COUNT uint64 = 32;
-
-type Details map[string]any
-
-func RandomBigInt() *big.Int {
-	v := random.GetRandom()
-	ret := big.NewInt(0)
-	ret.SetString(fmt.Sprintf("%d", v), 10)
-	return ret
-}
-
-func AssertAlways(condition bool, message string, details map[string]any) bool {
-	assert.Always(condition, message, details)
-	return condition
-}
-
-func AssertAlwaysErrNil(err error, message string, details map[string]any) bool {
-	return AssertAlways(err == nil, message, Details{
-		"error":   fmt.Sprint(err),
-		"details": details,
-	})
-}
 
 func NewClient() *client.Formance {
 	gateway := os.Getenv("GATEWAY_URL")
 	if gateway == "" {
-		gateway = "http://gateway.stack0.svc.cluster.local:8080/api/ledger"
+		gateway = "http://gateway.stack0.svc.cluster.local:8080/"
 	}
 	return client.New(
 		client.WithServerURL(gateway),
@@ -101,6 +76,12 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 	return ledgers[randomIndex], nil
 }
 
-func GetRandomAddress() string {
-	return random.RandomChoice([]string{"world", fmt.Sprintf("users:%d", random.GetRandom()%USER_ACCOUNT_COUNT)})
+func GetPresentTime(ctx context.Context, client *client.Formance, ledger string) (*time.Time, error) {
+	tx, err := client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
+		Ledger: ledger,
+	})
+	if AssertSometimesErrNil(err, "should be able to get the latest transaction", Details{}) {
+		return nil, err
+	}
+	return &tx.V2GetTransactionResponse.Data.Timestamp, nil
 }

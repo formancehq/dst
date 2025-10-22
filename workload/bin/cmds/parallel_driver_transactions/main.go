@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
+	"math/big"
+	"time"
 
 	"github.com/alitto/pond"
 	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
+	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
-	"github.com/formancehq/dst/workload/internal"
 )
 
 func main() {
@@ -30,10 +34,15 @@ func main() {
 	const count = 100
 
 	pool := pond.New(10, 10e3)
+	
+	presentTime, err := internal.GetPresentTime(ctx, client, ledger)
+	if err != nil {
+		return
+	}
 
 	for range count {
 		pool.Submit(func() {
-			CreateTransaction(ctx, client, ledger)
+			CreateTransaction(ctx, client, ledger, presentTime)
 		})
 	}
 
@@ -42,44 +51,157 @@ func main() {
 	log.Println("composer: parallel_driver_transactions: done")
 }
 
-type Postings []shared.V2Posting
-
 func CreateTransaction(
 	ctx context.Context,
 	client *client.Formance,
 	ledger string,
+	presentTime *time.Time,
 ) {
-	postings := RandomPostings()
-	_, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
+	offsetTime := presentTime.Add(time.Duration(-int64(random.GetRandom()%10)))
+	txTime := random.RandomChoice([]*time.Time{
+		nil,
+		&offsetTime,
+	})
+	
+	switch random.RandomChoice([]uint8{0, 1}) {
+	case 0:
+		CreateRandomPostingsTransaction(ctx, client, ledger, txTime)
+	case 1:
+		CreateRandomNumscriptTransaction(ctx, client, ledger, txTime)
+	}
+}
+
+// Submits a transaction with random postings, and checks the response's account volumes.
+func CreateRandomPostingsTransaction(
+	ctx context.Context,
+	client *client.Formance,
+	ledger string,
+	timestamp *time.Time,
+) {
+	postings := internal.RandomPostings()
+	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
 			Postings: postings,
+			Timestamp: timestamp,
 		},
 	})
+	if internal.AssertSometimesErrNil(
+		err,
+		"should be able to create a postings transaction",
+		internal.Details{
+			"ledger": ledger,
+			"postings": postings,
+			"error": err,
+		},
+	) {
+		return
+	}
 
-	assert.Sometimes(err == nil, "transaction was committed successfully", internal.Details{
-		"ledger": ledger,
-		"postings": postings,
-		"error": err,
+	// Check that we can read it immediately
+	_, err = client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
+		Ledger: ledger,
+		ID:     res.V2CreateTransactionResponse.Data.ID,
 	})
-}
-
-func RandomPostings() []shared.V2Posting {
-	postings := []shared.V2Posting{}
-
-	for range random.GetRandom()%2+1 {
-		source := internal.GetRandomAddress()
-		destination := internal.GetRandomAddress()
-		amount := internal.RandomBigInt()
-		asset := random.RandomChoice([]string{"USD/2", "EUR/2", "COIN"})
-
-		postings = append(postings, shared.V2Posting{
-			Amount:      amount,
-			Asset:       asset,
-			Destination: destination,
-			Source:      source,
+	var getTxError *sdkerrors.V2ErrorResponse
+	if errors.As(err, &getTxError) {
+		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read previous writes", internal.Details{
+			"ledger": ledger,
+			"txId": res.V2CreateTransactionResponse.Data.ID,
 		})
 	}
 
-	return postings
+	initialOverdrafts := make(map[string]map[string]*big.Int)
+	for account, volumes := range res.V2CreateTransactionResponse.Data.PreCommitVolumes {
+		initialOverdrafts[account] = make(map[string]*big.Int)
+		for asset, volume := range volumes {
+			if volume.Balance.Sign() == -1 {
+				initialOverdrafts[account][asset] = (&big.Int{}).Neg(volume.Balance)
+			}
+		}
+	}
+
+	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
+		internal.CheckVolumes(volumes, initialOverdrafts[account], internal.Details{
+			"ledger": ledger,
+			"account": account,
+		})
+	}
+}
+
+
+
+
+// Submits a random numscript transaction
+func CreateRandomNumscriptTransaction(
+	ctx context.Context,
+	client *client.Formance,
+	ledger string,
+	timestamp *time.Time,
+) {
+	postings := internal.RandomPostings()
+	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
+		Ledger: ledger,
+		V2PostTransaction: shared.V2PostTransaction{
+			Postings: postings,
+			Script: &shared.V2PostTransactionScript{
+				Plain: `
+				vars {
+					account $from
+					account $to
+				}
+				
+				send [COIN 10] {
+					source = $from allowing unbounded overdraft
+					destination = $to
+				}
+				`,
+				Vars:  map[string]string{
+
+				},
+			},
+			Timestamp: timestamp,
+		},
+	})
+	if internal.AssertSometimesErrNil(
+		err,
+		"should be able to create a numscript transaction",
+		internal.Details{
+			"ledger": ledger,
+			"postings": postings,
+			"error": err,
+		},
+	) {
+		return
+	}
+
+	// Check that we can read it immediately
+	_, err = client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
+		Ledger: ledger,
+		ID:     res.V2CreateTransactionResponse.Data.ID,
+	})
+	var getTxError *sdkerrors.V2ErrorResponse
+	if errors.As(err, &getTxError) {
+		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read previous writes", internal.Details{
+			"ledger": ledger,
+			"txId": res.V2CreateTransactionResponse.Data.ID,
+		})
+	}
+
+	initialOverdrafts := make(map[string]map[string]*big.Int)
+	for account, volumes := range res.V2CreateTransactionResponse.Data.PreCommitVolumes {
+		initialOverdrafts[account] = make(map[string]*big.Int)
+		for asset, volume := range volumes {
+			if volume.Balance.Sign() == -1 {
+				initialOverdrafts[account][asset] = (&big.Int{}).Neg(volume.Balance)
+			}
+		}
+	}
+
+	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
+		internal.CheckVolumes(volumes, initialOverdrafts[account], internal.Details{
+			"ledger": ledger,
+			"account": account,
+		})
+	}
 }
