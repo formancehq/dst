@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 	"time"
@@ -22,7 +23,7 @@ func main() {
 
 	ctx := context.Background()
 	client := internal.NewClient()
-
+	
 	ledger, err := internal.GetRandomLedger(ctx, client)
 	assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
 		"error": err,
@@ -79,11 +80,13 @@ func CreateRandomPostingsTransaction(
 	timestamp *time.Time,
 ) {
 	postings := internal.RandomPostings()
+	metadata := RandomTransactionMetadata()
 	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
 			Postings: postings,
 			Timestamp: timestamp,
+			Metadata: metadata,
 		},
 	})
 	if internal.AssertSometimesErrNil(
@@ -129,9 +132,6 @@ func CreateRandomPostingsTransaction(
 	}
 }
 
-
-
-
 // Submits a random numscript transaction
 func CreateRandomNumscriptTransaction(
 	ctx context.Context,
@@ -139,25 +139,26 @@ func CreateRandomNumscriptTransaction(
 	ledger string,
 	timestamp *time.Time,
 ) {
-	postings := internal.RandomPostings()
 	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
-			Postings: postings,
 			Script: &shared.V2PostTransactionScript{
 				Plain: `
 				vars {
 					account $from
 					account $to
+					number $amount
 				}
 				
-				send [COIN 10] {
+				send [COIN $amount] {
 					source = $from allowing unbounded overdraft
 					destination = $to
 				}
 				`,
 				Vars:  map[string]string{
-
+					"from": internal.GetRandomAddress(),
+					"to": internal.GetRandomAddress(),
+					"amount": internal.RandomBigInt().String(),
 				},
 			},
 			Timestamp: timestamp,
@@ -168,7 +169,6 @@ func CreateRandomNumscriptTransaction(
 		"should be able to create a numscript transaction",
 		internal.Details{
 			"ledger": ledger,
-			"postings": postings,
 			"error": err,
 		},
 	) {
@@ -188,20 +188,19 @@ func CreateRandomNumscriptTransaction(
 		})
 	}
 
-	initialOverdrafts := make(map[string]map[string]*big.Int)
-	for account, volumes := range res.V2CreateTransactionResponse.Data.PreCommitVolumes {
-		initialOverdrafts[account] = make(map[string]*big.Int)
-		for asset, volume := range volumes {
-			if volume.Balance.Sign() == -1 {
-				initialOverdrafts[account][asset] = (&big.Int{}).Neg(volume.Balance)
-			}
-		}
-	}
-
 	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
-		internal.CheckVolumes(volumes, initialOverdrafts[account], internal.Details{
+		internal.CheckVolumes(volumes, nil, internal.Details{
 			"ledger": ledger,
 			"account": account,
 		})
 	}
+}
+
+func RandomTransactionMetadata() map[string]string {
+	metadata := make(map[string]string)
+	for range random.GetRandom()%3 {
+		key := fmt.Sprintf("%v", random.GetRandom()%999)
+		metadata[key] = fmt.Sprintf("%v", random.GetRandom()%999)
+	}
+	return metadata
 }

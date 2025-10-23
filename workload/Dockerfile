@@ -6,15 +6,12 @@ RUN go install github.com/antithesishq/antithesis-sdk-go/tools/antithesis-go-ins
 COPY go.* .
 COPY bin ./bin
 COPY internal ./internal
-# COPY pkg/client /src/pkg/client
 
 RUN antithesis-go-instrumentor -assert_only .
 
 RUN go build -o /init ./bin/init
 RUN mkdir -p /cmds
-RUN for file in $(ls ./bin/cmds/); do go build -o /cmds/$file ./bin/cmds/$file; done
-
-RUN antithesis-go-instrumentor -assert_only .
+RUN for file in $(ls ./bin/cmds/); do cp ./github.com_V_formancehq_V_dst_V_workload_antithesis_catalog.go ./bin/cmds/$file; go build -o /cmds/$file ./bin/cmds/$file; done
 
 # Runner
 FROM alpine:3.22

@@ -77,11 +77,16 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 }
 
 func GetPresentTime(ctx context.Context, client *client.Formance, ledger string) (*time.Time, error) {
-	tx, err := client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
+	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
 	})
 	if AssertSometimesErrNil(err, "should be able to get the latest transaction", Details{}) {
 		return nil, err
 	}
-	return &tx.V2GetTransactionResponse.Data.Timestamp, nil
+	if len(res.V2TransactionsCursorResponse.Cursor.Data) == 0 {
+		now := time.Now()
+		return &now, err
+	} else {
+		return &res.V2TransactionsCursorResponse.Cursor.Data[0].Timestamp, nil
+	}
 }

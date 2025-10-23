@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	log.Println("composer: parallel_driver_transactions")
+	log.Println("composer: parallel_driver_bulk")
 
 	ctx := context.Background()
 	client := internal.NewClient()
@@ -47,7 +47,7 @@ func main() {
 
 	pool.StopAndWait()
 
-	log.Println("composer: parallel_driver_transactions: done")
+	log.Println("composer: parallel_driver_bulk: done")
 }
 
 func SubmitBulk(
