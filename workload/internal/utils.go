@@ -7,12 +7,23 @@ import (
 	"os"
 	"time"
 
+	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 )
+
+type Details map[string]any
+
+func (d *Details) with(extra Details) Details {
+	out := make(map[string]any)
+	for k, v := range *d { out[k] = v }
+	for k, v := range extra { out[k] = v }
+	return out
+}
+
 
 func NewClient() *client.Formance {
 	gateway := os.Getenv("GATEWAY_URL")
@@ -80,7 +91,10 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
 	})
-	if AssertSometimesErrNil(err, "should be able to get the latest transaction", Details{}) {
+	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
+		"ledger": ledger,
+	})
+	if err != nil {
 		return nil, err
 	}
 	if len(res.V2TransactionsCursorResponse.Cursor.Data) == 0 {

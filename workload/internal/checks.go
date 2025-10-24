@@ -7,6 +7,7 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 )
 
+// overdraft will only be checked if allowedOverdraft is not nil
 func CheckVolumes(volumes map[string]shared.V2Volume, allowedOverdraft map[string]*big.Int, details Details) {
 	for asset, volume := range volumes {
 		balance := new(big.Int).Set(volume.Input)
