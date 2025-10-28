@@ -15,6 +15,8 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 )
 
+var Faults = true
+
 type Details map[string]any
 
 func (d *Details) with(extra Details) Details {
@@ -102,5 +104,14 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 		return &now, err
 	} else {
 		return &res.V2TransactionsCursorResponse.Cursor.Data[0].Timestamp, nil
+	}
+}
+
+// Create an api call context with a timeout if faults are disabled
+func ApiCallContext(ctx context.Context, maxTimeout time.Duration) (context.Context, func()) {
+	if Faults {
+		return ctx, func(){}
+	} else {
+		return context.WithTimeout(ctx, maxTimeout)
 	}
 }

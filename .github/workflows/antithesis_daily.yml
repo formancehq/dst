@@ -59,7 +59,7 @@ jobs:
         run: |
           nix develop --impure --command just --justfile ./Justfile push-daily-run
 
-      - name: Run Antithesis Tests
+      - name: Daily run (with faults)
         uses: antithesishq/antithesis-trigger-action@v0.8
         with:
           notebook_name: formance-k8s
@@ -70,3 +70,16 @@ jobs:
           images: "workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:${{ env.OPERATOR_TAG }};ghcr.io/formancehq/operator-utils:${{ env.OPERATOR_UTILS_TAG }};ghcr.io/formancehq/gateway:${{ env.GATEWAY_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_PREVIOUS_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_LATEST_TAG }}"
           config_image: "antithesis-config:daily_run"
           email_recipients: ${{ secrets.ANTITHESIS_SLACK_REPORT_RECIPIENT }}
+
+      - name: Daily run (without faults)
+        uses: antithesishq/antithesis-trigger-action@v0.8
+        with:
+          notebook_name: formance-k8s
+          tenant: formance
+          username: ${{ secrets.ANTITHESIS_USERNAME }}
+          password: ${{ secrets.ANTITHESIS_PASSWORD }}
+          github_token: ${{ secrets.NUMARY_GITHUB_TOKEN }}
+          images: "workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:${{ env.OPERATOR_TAG }};ghcr.io/formancehq/operator-utils:${{ env.OPERATOR_UTILS_TAG }};ghcr.io/formancehq/gateway:${{ env.GATEWAY_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_PREVIOUS_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_LATEST_TAG }}"
+          config_image: "antithesis-config:daily_run_no_faults"
+          email_recipients: ${{ secrets.ANTITHESIS_SLACK_REPORT_RECIPIENT }}
+          custom.no_faults: true

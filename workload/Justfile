@@ -1,5 +1,12 @@
-build:
-	docker build --build-arg LEDGER_LATEST_TAG="$LEDGER_LATEST_TAG" -f Dockerfile -t "$ANTITHESIS_REPOSITORY/workload:latest" .
-push: build
-	docker push "$ANTITHESIS_REPOSITORY/workload:latest"
+build faults='true':
+	#!/usr/bin/env bash
+	[ "$faults" = 'true' ] && tag=daily_faults || tag=daily_nofaults
 
+	docker build --build-arg LEDGER_LATEST_TAG="$LEDGER_LATEST_TAG" --build-arg FAULT_INJECTION="$faults" -f Dockerfile -t "$ANTITHESIS_REPOSITORY/workload:$tag" .
+
+push faults='true':
+	#!/usr/bin/env bash
+
+	[ "$faults" = 'true' ] && tag=daily_faults || tag=daily_nofaults
+	just build "$tag"
+	docker push "$ANTITHESIS_REPOSITORY/workload:$tag"

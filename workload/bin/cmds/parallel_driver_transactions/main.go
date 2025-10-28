@@ -16,6 +16,7 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
+	"github.com/formancehq/go-libs/v2/pointer"
 )
 
 func main() {
@@ -24,12 +25,21 @@ func main() {
 	ctx := context.Background()
 	client := internal.NewClient()
 	
-	ledger, err := internal.GetRandomLedger(ctx, client)
-	assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
-		"error": err,
-	})
-	if err != nil {
-		return
+
+	callCtx, cancel := internal.ApiCallContext(ctx, time.Second)
+	defer cancel()
+	ledger, err := internal.GetRandomLedger(callCtx, client)
+	if internal.Faults {
+		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
+		if err != nil {
+			return
+		}
+	} else {
+		assert.Always(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
 	}
 
 	const count = 100
@@ -81,21 +91,32 @@ func CreateRandomPostingsTransaction(
 ) {
 	postings := internal.RandomPostings()
 	metadata := RandomTransactionMetadata()
-	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
+
+	forced := random.RandomChoice([]bool{false, true})
+
+	callCtx, cancel := internal.ApiCallContext(ctx, time.Second)
+	defer cancel()
+	res, err := client.Ledger.V2.CreateTransaction(callCtx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
 			Postings: postings,
 			Timestamp: timestamp,
 			Metadata: metadata,
+			Force: pointer.For(forced),
 		},
 	})
-	assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
+	details := internal.Details{
 		"ledger": ledger,
 		"postings": postings,
 		"error": err,
-	})
-	if err != nil {
-		return
+	}
+	if internal.Faults {
+		assert.Sometimes(err == nil, "should be able to create a postings transaction", details)
+		if err != nil {
+			return
+		}
+	} else {
+		assert.Always(err == nil, "should be able to create a postings transaction", details)
 	}
 
 	// Check that we can read it immediately
@@ -103,33 +124,40 @@ func CreateRandomPostingsTransaction(
 		Ledger: ledger,
 		ID:     res.V2CreateTransactionResponse.Data.ID,
 	})
-	var getTxError *sdkerrors.V2ErrorResponse
-	if errors.As(err, &getTxError) {
-		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed postings transactions", internal.Details{
-			"ledger": ledger,
-			"txId": res.V2CreateTransactionResponse.Data.ID,
-		})
+	details = internal.Details{
+		"ledger": ledger,
+		"txId": res.V2CreateTransactionResponse.Data.ID,
+	}
+	if internal.Faults {
+		var getTxError *sdkerrors.V2ErrorResponse
+		if errors.As(err, &getTxError) {
+			assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed postings transactions", details)
+		}
+	} else {
+		assert.Always(err == nil, "should be able to read committed postings transactions", details)
 	}
 
-	initialOverdrafts := make(map[string]map[string]*big.Int)
-	for account, volumes := range res.V2CreateTransactionResponse.Data.PreCommitVolumes {
-		initialOverdrafts[account] = make(map[string]*big.Int)
-		for asset, volume := range volumes {
-			if volume.Balance.Sign() == -1 {
-				initialOverdrafts[account][asset] = (&big.Int{}).Neg(volume.Balance)
+	if !forced {
+		initialOverdrafts := make(map[string]map[string]*big.Int)
+		for account, volumes := range res.V2CreateTransactionResponse.Data.PreCommitVolumes {
+			initialOverdrafts[account] = make(map[string]*big.Int)
+			for asset, volume := range volumes {
+				if volume.Balance.Sign() == -1 {
+					initialOverdrafts[account][asset] = (&big.Int{}).Neg(volume.Balance)
+				}
 			}
 		}
-	}
-
-	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
-		var allowedOverdraft map[string]*big.Int
-		if account != "world" {
-			allowedOverdraft = initialOverdrafts[account]
+	
+		for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
+			var allowedOverdraft map[string]*big.Int
+			if account != "world" {
+				allowedOverdraft = initialOverdrafts[account]
+			}
+			internal.CheckVolumes(volumes, allowedOverdraft, internal.Details{
+				"ledger": ledger,
+				"account": account,
+			})
 		}
-		internal.CheckVolumes(volumes, allowedOverdraft, internal.Details{
-			"ledger": ledger,
-			"account": account,
-		})
 	}
 }
 
