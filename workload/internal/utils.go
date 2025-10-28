@@ -15,8 +15,6 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 )
 
-var Faults = true
-
 type Details map[string]any
 
 func (d *Details) with(extra Details) Details {
