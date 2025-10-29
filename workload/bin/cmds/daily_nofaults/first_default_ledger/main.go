@@ -18,7 +18,6 @@ func main() {
 		ctx,
 		client,
 		ledger,
-		ledger,
 	)
 
 	if err != nil {
