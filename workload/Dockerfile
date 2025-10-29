@@ -15,9 +15,11 @@ WORKDIR /src
 RUN antithesis-go-instrumentor . /instrumented
 WORKDIR /instrumented/customer
 
+ARG COMMANDS_DIR
+
 RUN go build -o /init ./bin/init
 RUN mkdir -p /cmds
-RUN for file in $(ls ./bin/cmds/); do cp ./github.com_V_formancehq_V_dst_V_workload_antithesis_catalog.go ./bin/cmds/$file; go build -race -o /cmds/$file ./bin/cmds/$file; done
+RUN for file in $(ls ${COMMANDS_DIR}); do cp ./github.com_V_formancehq_V_dst_V_workload_antithesis_catalog.go ${COMMANDS_DIR}$file; go build -race -o /cmds/$file ${COMMANDS_DIR}$file; done
 
 # Runner
 FROM debian:trixie

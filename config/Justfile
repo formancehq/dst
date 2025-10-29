@@ -1,4 +1,4 @@
-build-manifest output:
+build-manifest output workload_tag='daily':
 	rm -f -- '{{output}}'
 	cat manifests/namespace.yaml >> '{{output}}'
 	echo "---" >> '{{output}}'
@@ -10,16 +10,18 @@ build-manifest output:
 	echo "---" >> '{{output}}'
 	yq '.spec.version = strenv(LEDGER_PREVIOUS_TAG)' manifests/ledger.yaml >> '{{output}}'
 	echo "---" >> '{{output}}'
-	cat manifests/workload.yaml >> '{{output}}'
+	yq '.spec.containers[0].image = "us-central1-docker.pkg.dev/molten-verve-216720/formance-repository/workload:{{workload_tag}}"' manifests/workload.yaml >> '{{output}}'
 
-push:
+push faults='true':
 	#!/usr/bin/env bash
 
 	set -euxo pipefail
 	tmpdir=$(mktemp -d)
 	trap 'rm -rf $tmpdir' EXIT
 
-	just build-manifest "$tmpdir/resources.yaml"
+	[ "{{faults}}" = 'true' ] && tag=daily_faults || tag=daily_nofaults
 
-	docker build -f Dockerfile.config -t $ANTITHESIS_REPOSITORY/antithesis-config:daily_run $tmpdir
-	docker push $ANTITHESIS_REPOSITORY/antithesis-config:daily_run
+	just build-manifest "$tmpdir/resources.yaml" "$tag"
+
+	docker build -f Dockerfile.config -t "$ANTITHESIS_REPOSITORY/antithesis-config:$tag" $tmpdir
+	docker push "$ANTITHESIS_REPOSITORY/antithesis-config:$tag"
