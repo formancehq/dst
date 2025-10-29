@@ -12,6 +12,7 @@ require (
 )
 
 require (
+	github.com/confluentinc/confluent-kafka-go v1.9.2
 	github.com/formancehq/formance-sdk-go/v3 v3.7.1
 	k8s.io/apimachinery v0.34.0
 	k8s.io/client-go v0.34.0

@@ -19,6 +19,16 @@ spec:
   value: "formancehq/ledger-instrumented"
 ---
 apiVersion: formance.com/v1beta1
+kind: Settings
+metadata:
+  name: formance-local-otel-collector
+spec:
+  key: opentelemetry.*.dsn
+  stacks:
+    - "stack0"
+  value: grpc://simplest-collector.default.svc.cluster.local:4317?insecure=true
+---
+apiVersion: formance.com/v1beta1
 kind: Stack
 metadata:
   name: stack0

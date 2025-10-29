@@ -1,0 +1,10 @@
+apiVersion: v2
+name: formance_dst
+version: 1.0.0
+dependencies:
+  - name: regions
+    repository: oci://ghcr.io/formancehq/helm
+    version: 2.15.2
+  - name: opentelemetry-operator
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+    version: 0.98.0

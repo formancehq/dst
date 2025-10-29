@@ -1,0 +1,10 @@
+ledger:
+  previous_tag: v2.2.47
+workload:
+  tag: daily_faults
+opentelemetry-operator:
+  admissionWebhooks:
+    certManager:
+      enabled: false
+    autoGenerateCert:
+      enabled: true

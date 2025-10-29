@@ -46,6 +46,7 @@ deploy-local:
   kapp deploy -y -a formance-dst -f "$tmpdir" --diff-changes
   kubectl port-forward -n stack0 $(kubectl get pod -n stack0 -l app.kubernetes.io/name=gateway -o jsonpath="{.items[0].metadata.name}") 8080:8080 &
   kubectl port-forward -n formance-systems postgres 5432:5432 &
+  kubectl port-forward -n default postgres 5432:5432 &
   # kubectl port-forward $(kubectl get pod -l app.kubernetes.io/name=hdx-oss-v2 -o jsonpath="{.items[0].metadata.name}") 8081:3000 &
 
   wait

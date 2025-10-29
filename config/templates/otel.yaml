@@ -1,0 +1,42 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: simplest
+spec:
+  image: otel/opentelemetry-collector-contrib:0.138.0
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 15
+      batch:
+        send_batch_size: 10000
+        timeout: 10s
+
+    exporters:
+      debug:
+      kafka:
+        protocol_version: 2.0.0
+        brokers:
+          - my-cluster-kafka-bootstrap.kafka.svc.cluster.local:9092
+        topic: otlp_logs
+        encoding: otlp_proto
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [kafka]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug]

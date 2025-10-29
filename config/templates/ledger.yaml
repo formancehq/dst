@@ -4,4 +4,4 @@ metadata:
   name: stack0-ledger
 spec:
   stack: stack0
-  version: LEDGER_VERSION_PLACEHOLDER
+  version: {{ .Values.ledger.previous_tag }}
