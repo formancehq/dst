@@ -1,16 +1,8 @@
 build-manifest output workload_tag='daily':
 	rm -f -- '{{output}}'
-	cat manifests/namespace.yaml >> '{{output}}'
-	echo "---" >> '{{output}}'
-	cat manifests/postgres.yaml >> '{{output}}'
-	echo "---" >> '{{output}}'
-	helm template regions oci://ghcr.io/formancehq/helm/regions --version 2.15.2 --namespace formance-systems >> '{{output}}'
-	echo "---" >> '{{output}}'
-	cat manifests/stack.yaml >> '{{output}}'
-	echo "---" >> '{{output}}'
-	yq '.spec.version = strenv(LEDGER_PREVIOUS_TAG)' manifests/ledger.yaml >> '{{output}}'
-	echo "---" >> '{{output}}'
-	yq '.spec.containers[0].image = "us-central1-docker.pkg.dev/molten-verve-216720/formance-repository/workload:{{workload_tag}}"' manifests/workload.yaml >> '{{output}}'
+	helm dependency update
+	helm dependency build
+	helm template . --set "ledger.previous_tag=$LEDGER_PREVIOUS_TAG" --set "workload.tag={{workload_tag}}" >> '{{output}}'
 
 push faults='true':
 	#!/usr/bin/env bash

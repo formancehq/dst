@@ -1,0 +1,7 @@
+apiVersion: v2
+name: formance_dst
+version: 1.0.0
+dependencies:
+  - name: regions
+    repository: oci://ghcr.io/formancehq/helm
+    version: 2.15.2

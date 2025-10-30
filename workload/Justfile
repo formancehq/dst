@@ -1,13 +1,13 @@
 build faults='true':
 	#!/usr/bin/env bash
-	[ "$faults" = 'true' ] && tag=daily_faults || tag=daily_nofaults
-	[ "$faults" = 'true' ] && commands_dir="./bin/cmds/daily_faults/" || commands_dir="./bin/cmds/daily_nofaults/"
+	[ "{{faults}}" = 'true' ] && tag=daily_faults || tag=daily_nofaults
+	[ "{{faults}}" = 'true' ] && commands_dir="./bin/cmds/daily_faults/" || commands_dir="./bin/cmds/daily_nofaults/"
 
 	docker build --build-arg LEDGER_LATEST_TAG="$LEDGER_LATEST_TAG" --build-arg COMMANDS_DIR="$commands_dir" -f Dockerfile -t "$ANTITHESIS_REPOSITORY/workload:$tag" .
 
 push faults='true':
 	#!/usr/bin/env bash
 
-	[ "$faults" = 'true' ] && tag=daily_faults || tag=daily_nofaults
+	[ "{{faults}}" = 'true' ] && tag=daily_faults || tag=daily_nofaults
 	just build "$tag"
 	docker push "$ANTITHESIS_REPOSITORY/workload:$tag"
