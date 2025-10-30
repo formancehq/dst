@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
+	"github.com/formancehq/go-libs/v2/pointer"
 )
 
 type Details map[string]any
@@ -47,14 +50,31 @@ func NewClient() *client.Formance {
 	)
 }
 
-func CreateLedger(ctx context.Context, client *client.Formance, name string, bucket string) (*operations.V2CreateLedgerResponse, error) {
+func CreateLedger(ctx context.Context, client *client.Formance, name string) (*operations.V2CreateLedgerResponse, error) {
+	bucket := random.RandomChoice([]*string{
+		&name,
+		nil,
+		pointer.For("_default"),
+	})
 	res, err := client.Ledger.V2.CreateLedger(ctx, operations.V2CreateLedgerRequest{
 		Ledger: name,
 		V2CreateLedgerRequest: shared.V2CreateLedgerRequest{
-			Bucket: &bucket,
+			Bucket: bucket,
 		},
 	})
-
+	assert.Sometimes(err == nil, "should be able to create ledger", Details {
+		"ledger": name,
+		"error": err,
+	})
+	_, err = client.Ledger.V2.GetLedger(ctx, operations.V2GetLedgerRequest{
+		Ledger: name,
+	})
+	var getTxError *sdkerrors.V2ErrorResponse
+	if errors.As(err, &getTxError) {
+		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to get created ledger", Details{
+			"ledger": name,
+		})
+	}
 	return res, err
 }
 

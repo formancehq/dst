@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	"github.com/formancehq/dst/workload/internal"
 )
@@ -21,12 +20,10 @@ func main() {
 		ctx,
 		client,
 		ledger,
-		ledger,
 	)
-
-	assert.Sometimes(err == nil, "ledger should have been created properly", internal.Details{
-		"error": err,
-	})
+	if err != nil {
+		return
+	}
 
 	log.Println("composer: parallel_driver_ledger_create: done")
 }

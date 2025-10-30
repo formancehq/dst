@@ -2,8 +2,5 @@ dependencies:
 - name: regions
   repository: oci://ghcr.io/formancehq/helm
   version: 2.15.2
-- name: opentelemetry-operator
-  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
-  version: 0.98.0
-digest: sha256:03009f92699e594b3e27ea1ede7324aaf45e33e572e08ace80386cb6c5f76945
-generated: "2025-10-29T18:22:08.357017859+01:00"
+digest: sha256:63749eb0443360f9d8b30c4490319b09f19814c14de654ac8cd3dd732be5456d
+generated: "2025-10-30T15:33:11.471295219+01:00"
