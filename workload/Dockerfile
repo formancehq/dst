@@ -32,4 +32,4 @@ ENTRYPOINT ["/init"]
 COPY --from=compiler /cmds/* /opt/antithesis/test/v1/main/
 COPY --from=compiler /instrumented/symbols/ /symbols
 
-RUN echo ${LEDGER_LATEST_TAG} > /ledger_latest_tag
+RUN echo -n ${LEDGER_LATEST_TAG} > /ledger_latest_tag

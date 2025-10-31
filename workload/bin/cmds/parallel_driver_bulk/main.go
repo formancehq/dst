@@ -32,7 +32,7 @@ func main() {
 	const count = 100
 
 	pool := pond.New(10, 10e3)
-	
+
 	presentTime, err := internal.GetPresentTime(ctx, client, ledger)
 	if err != nil {
 		return
@@ -56,7 +56,7 @@ func SubmitBulk(
 	ledger string,
 	timestamp time.Time,
 ) {
-	txCount := random.GetRandom()%5
+	txCount := random.GetRandom() % 5
 
 	elements := make([]shared.V2BulkElement, 0)
 	for range txCount {
@@ -65,15 +65,15 @@ func SubmitBulk(
 	_, err := client.Ledger.V2.CreateBulk(ctx, operations.V2CreateBulkRequest{
 		Ledger:            ledger,
 		ContinueOnFailure: pointer.For(false),
-		Atomic:            pointer.For(true),
+		Atomic:            pointer.For(false),
 		Parallel:          pointer.For(true),
 		RequestBody:       elements,
 	})
 
 	assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
-		"ledger": ledger,
+		"ledger":   ledger,
 		"elements": elements,
-		"error": err,
+		"error":    err,
 	})
 	if err != nil {
 		return
@@ -85,10 +85,10 @@ func RandomBulkElement(time time.Time) shared.V2BulkElement {
 	case 0:
 		return shared.CreateV2BulkElementCreateTransaction(
 			shared.V2BulkElementCreateTransaction{
-				Ik:     nil,
-				Data:   &shared.V2PostTransaction{
-					Timestamp:       internal.RandomTimestamp(time),
-					Postings:        internal.RandomPostings(),
+				Ik: nil,
+				Data: &shared.V2PostTransaction{
+					Timestamp: internal.RandomTimestamp(time),
+					Postings:  internal.RandomPostings(),
 				},
 			},
 		)

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,19 +12,23 @@ import (
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 )
 
 type Details map[string]any
 
-func (d *Details) with(extra Details) Details {
+func (d *Details) With(extra Details) Details {
 	out := make(map[string]any)
-	for k, v := range *d { out[k] = v }
-	for k, v := range extra { out[k] = v }
+	for k, v := range *d {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
 	return out
 }
-
 
 func NewClient() *client.Formance {
 	gateway := os.Getenv("GATEWAY_URL")
@@ -48,14 +53,29 @@ func NewClient() *client.Formance {
 }
 
 func CreateLedger(ctx context.Context, client *client.Formance, name string, bucket string) (*operations.V2CreateLedgerResponse, error) {
+	details := Details{
+		"ledger": name,
+	}
 	res, err := client.Ledger.V2.CreateLedger(ctx, operations.V2CreateLedgerRequest{
 		Ledger: name,
 		V2CreateLedgerRequest: shared.V2CreateLedgerRequest{
 			Bucket: &bucket,
 		},
 	})
-
-	return res, err
+	assert.Sometimes(err == nil, "should be able to create ledger", details.With(Details{
+		"error": err,
+	}))
+	if err != nil {
+		return nil, err
+	}
+	_, err = client.Ledger.V2.GetLedger(ctx, operations.V2GetLedgerRequest{
+		Ledger: name,
+	})
+	var getTxError *sdkerrors.V2ErrorResponse
+	if errors.As(err, &getTxError) {
+		assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to get created ledger", details)
+	}
+	return res, nil
 }
 
 func ListLedgers(ctx context.Context, client *client.Formance) ([]string, error) {
@@ -82,7 +102,7 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 		return "", fmt.Errorf("no ledgers found")
 	}
 
-	randomIndex := random.GetRandom()%uint64(len(ledgers))
+	randomIndex := random.GetRandom() % uint64(len(ledgers))
 
 	return ledgers[randomIndex], nil
 }

@@ -16,7 +16,6 @@ import (
 	"github.com/formancehq/go-libs/v2/pointer"
 )
 
-
 // Submit a bulk of transactions containing an invalid one, and check that no transaction was commited.
 // We send the correct transactions to `never:*` accounts which will get later checked.
 func SubmitInvalidAtomicBulk(
@@ -25,18 +24,18 @@ func SubmitInvalidAtomicBulk(
 	ledger string,
 	timestamp time.Time,
 ) {
-	txCount := random.GetRandom()%20
-	
+	txCount := random.GetRandom() % 20
+
 	// insert valid transactions
 	elements := []shared.V2BulkElement{}
 	for range txCount {
 		destination := random.RandomChoice([]string{"world", fmt.Sprintf("never:bulk_atomicity:%d", random.GetRandom()%internal.USER_ACCOUNT_COUNT)})
 		elements = append(elements, shared.CreateV2BulkElementCreateTransaction(
 			shared.V2BulkElementCreateTransaction{
-				Ik:     nil,
-				Data:   &shared.V2PostTransaction{
-					Timestamp:       internal.RandomTimestamp(timestamp),
-					Postings:        []shared.V2Posting{
+				Ik: nil,
+				Data: &shared.V2PostTransaction{
+					Timestamp: internal.RandomTimestamp(timestamp),
+					Postings: []shared.V2Posting{
 						{
 							Amount:      big.NewInt(100),
 							Asset:       "COIN",
@@ -48,14 +47,14 @@ func SubmitInvalidAtomicBulk(
 			},
 		))
 	}
-	
+
 	// insert an invalid transaction
 	elements = slices.Insert(elements, int(random.GetRandom()%(txCount+1)), shared.CreateV2BulkElementCreateTransaction(
 		shared.V2BulkElementCreateTransaction{
-			Ik:     nil,
-			Data:   &shared.V2PostTransaction{
-				Timestamp:       internal.RandomTimestamp(timestamp),
-				Postings:        []shared.V2Posting{
+			Ik: nil,
+			Data: &shared.V2PostTransaction{
+				Timestamp: internal.RandomTimestamp(timestamp),
+				Postings: []shared.V2Posting{
 					{
 						Amount:      big.NewInt(100),
 						Asset:       "COIN",
@@ -74,9 +73,9 @@ func SubmitInvalidAtomicBulk(
 		RequestBody:       elements,
 	})
 	assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
-		"ledger": ledger,
+		"ledger":   ledger,
 		"elements": elements,
-		"error": err,
+		"error":    err,
 	})
 	if err != nil {
 		return
