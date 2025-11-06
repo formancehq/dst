@@ -34,7 +34,7 @@ func main() {
 		panic(err)
 	}
 
-	gvr := schema.GroupVersionResource {
+	gvr := schema.GroupVersionResource{
 		Group:    "formance.com",
 		Version:  "v1beta1",
 		Resource: "ledgers",
@@ -53,6 +53,6 @@ func main() {
 
 	assert.Sometimes(err == nil, "stack0-ledger should successfully be updated", internal.Details{
 		"ledger": res,
-		"error": err,
+		"error":  err,
 	})
 }

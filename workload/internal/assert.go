@@ -10,8 +10,12 @@ type Details map[string]any
 
 func (d *Details) with(Details) Details {
 	out := make(map[string]any)
-	for k, v := range *d { out[k] = v }
-	for k, v := range *d { out[k] = v }
+	for k, v := range *d {
+		out[k] = v
+	}
+	for k, v := range *d {
+		out[k] = v
+	}
 	return out
 }
 
@@ -28,7 +32,7 @@ func AssertAlwaysErrNil(err error, message string, details Details) bool {
 }
 
 func AssertSometimesErrNil(err error, message string, details Details) bool {
-	assert.Sometimes(err == nil, message, details.with(Details {
+	assert.Sometimes(err == nil, message, details.with(Details{
 		"error": err,
 	}))
 	return err != nil

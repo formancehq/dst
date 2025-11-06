@@ -9,7 +9,7 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 )
 
-const USER_ACCOUNT_COUNT uint64 = 32;
+const USER_ACCOUNT_COUNT uint64 = 32
 
 func RandomBigInt() *big.Int {
 	v := random.GetRandom()
@@ -43,10 +43,9 @@ func RandomPostings() []shared.V2Posting {
 }
 
 func RandomTimestamp(presentTime time.Time) *time.Time {
-	offsetTime := presentTime.Add(time.Duration(-int64(random.GetRandom()%10)))
+	offsetTime := presentTime.Add(time.Duration(-int64(random.GetRandom() % 10)))
 	return random.RandomChoice([]*time.Time{
 		nil,
 		&offsetTime,
 	})
 }
-
