@@ -89,15 +89,12 @@ func CreateRandomPostingsTransaction(
 			Metadata:  metadata,
 		},
 	})
-	if internal.AssertSometimesErrNil(
-		err,
-		"should be able to create a postings transaction",
-		internal.Details{
-			"ledger":   ledger,
-			"postings": postings,
-			"error":    err,
-		},
-	) {
+	assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
+		"ledger":   ledger,
+		"postings": postings,
+		"error":    err,
+	})
+	if err != nil {
 		return
 	}
 
@@ -106,12 +103,14 @@ func CreateRandomPostingsTransaction(
 		Ledger: ledger,
 		ID:     res.V2CreateTransactionResponse.Data.ID,
 	})
-	var getTxError *sdkerrors.V2ErrorResponse
-	if errors.As(err, &getTxError) {
-		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read previous writes", internal.Details{
-			"ledger": ledger,
-			"txId":   res.V2CreateTransactionResponse.Data.ID,
-		})
+	if err != nil {
+		var getTxError *sdkerrors.V2ErrorResponse
+		if errors.As(err, &getTxError) {
+			assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed postings transactions", internal.Details{
+				"ledger": ledger,
+				"txId":   res.V2CreateTransactionResponse.Data.ID,
+			})
+		}
 	}
 
 	initialOverdrafts := make(map[string]map[string]*big.Int)
@@ -125,7 +124,11 @@ func CreateRandomPostingsTransaction(
 	}
 
 	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {
-		internal.CheckVolumes(volumes, initialOverdrafts[account], internal.Details{
+		var allowedOverdraft map[string]*big.Int
+		if account != "world" {
+			allowedOverdraft = initialOverdrafts[account]
+		}
+		internal.CheckVolumes(volumes, allowedOverdraft, internal.Details{
 			"ledger":  ledger,
 			"account": account,
 		})
@@ -147,31 +150,27 @@ func CreateRandomNumscriptTransaction(
 				vars {
 					account $from
 					account $to
-					number $amount
+					monetary $amount
 				}
-				
-				send [COIN $amount] {
+				send $amount (
 					source = $from allowing unbounded overdraft
 					destination = $to
-				}
+				)
 				`,
 				Vars: map[string]string{
 					"from":   internal.GetRandomAddress(),
 					"to":     internal.GetRandomAddress(),
-					"amount": internal.RandomBigInt().String(),
+					"amount": fmt.Sprintf("COIN %v", internal.RandomBigInt().String()),
 				},
 			},
 			Timestamp: timestamp,
 		},
 	})
-	if internal.AssertSometimesErrNil(
-		err,
-		"should be able to create a numscript transaction",
-		internal.Details{
-			"ledger": ledger,
-			"error":  err,
-		},
-	) {
+	assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
+		"ledger": ledger,
+		"error":  err,
+	})
+	if err != nil {
 		return
 	}
 
@@ -180,12 +179,14 @@ func CreateRandomNumscriptTransaction(
 		Ledger: ledger,
 		ID:     res.V2CreateTransactionResponse.Data.ID,
 	})
-	var getTxError *sdkerrors.V2ErrorResponse
-	if errors.As(err, &getTxError) {
-		assert.Always(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read previous writes", internal.Details{
-			"ledger": ledger,
-			"txId":   res.V2CreateTransactionResponse.Data.ID,
-		})
+	if err != nil {
+		var getTxError *sdkerrors.V2ErrorResponse
+		if errors.As(err, &getTxError) {
+			assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed numscript transactions", internal.Details{
+				"ledger": ledger,
+				"txId":   res.V2CreateTransactionResponse.Data.ID,
+			})
+		}
 	}
 
 	for account, volumes := range res.V2CreateTransactionResponse.Data.PostCommitVolumes {

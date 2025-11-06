@@ -34,6 +34,7 @@ func main() {
 			defer wg.Done()
 			checkBalanced(ctx, client, ledger)
 			checkAccountBalances(ctx, client, ledger)
+			checkVolumesConsistent(ctx, client, ledger)
 			checkNeverAccounts(ctx, client, ledger)
 		}(ledger.Name)
 	}
@@ -59,9 +60,8 @@ func checkBalanced(ctx context.Context, client *client.Formance, ledger string) 
 	for asset, volumes := range aggregated.V2AggregateBalancesResponse.Data {
 		assert.Always(
 			volumes.Cmp(new(big.Int)) == 0,
-			fmt.Sprintf("aggregated volumes for asset %s should be 0",
-				asset,
-			), internal.Details{
+			"aggregated volumes for asset should be 0",
+			internal.Details{
 				"asset":   asset,
 				"volumes": volumes,
 			})
@@ -99,11 +99,11 @@ func checkNeverAccounts(ctx context.Context, client *client.Formance, ledger str
 		Ledger: ledger,
 		RequestBody: map[string]interface{}{
 			"$match": map[string]any{
-				"address": "never:",
+				"destination": "never:",
 			},
 		},
 	})
-	assert.Sometimes(err == nil, "should be able to get the latest transaction", internal.Details{
+	assert.Sometimes(err == nil, "should be able to list never accounts", internal.Details{
 		"error": err,
 	})
 	if err != nil {
