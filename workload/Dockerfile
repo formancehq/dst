@@ -10,7 +10,6 @@ COPY bin /src/bin
 COPY internal /src/internal
 
 RUN mkdir /instrumented
-RUN ls .
 WORKDIR /src
 RUN antithesis-go-instrumentor . /instrumented
 WORKDIR /instrumented/customer
