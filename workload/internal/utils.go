@@ -71,7 +71,7 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 		return "", fmt.Errorf("no ledgers found")
 	}
 
-	randomIndex := random.GetRandom()%uint64(len(ledgers))
+	randomIndex := random.GetRandom() % uint64(len(ledgers))
 
 	return ledgers[randomIndex], nil
 }

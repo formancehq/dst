@@ -11,8 +11,8 @@ func CheckVolumes(volumes map[string]shared.V2Volume, allowedOverdraft map[strin
 	for asset, volume := range volumes {
 		balance := new(big.Int).Set(volume.Input)
 		balance.Sub(balance, volume.Output)
-		assert.Always(balance.Cmp(volume.Balance) == 0, "reported balance and volumes should be consistent", details.with(Details {
-			"asset": asset,
+		assert.Always(balance.Cmp(volume.Balance) == 0, "reported balance and volumes should be consistent", details.with(Details{
+			"asset":  asset,
 			"volume": volume,
 		}))
 		if allowedOverdraft != nil {
@@ -21,8 +21,8 @@ func CheckVolumes(volumes map[string]shared.V2Volume, allowedOverdraft map[strin
 				minimumBalance.Neg(overdraft)
 			}
 			assert.Always(volume.Balance.Cmp(minimumBalance) != -1, "balance exceeds allowed overdraft", details.with(Details{
-				"asset": asset,
-				"volume": volume,
+				"asset":     asset,
+				"volume":    volume,
 				"overdraft": allowedOverdraft[asset],
 			}))
 		}
