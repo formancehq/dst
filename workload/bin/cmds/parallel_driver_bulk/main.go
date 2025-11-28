@@ -22,9 +22,15 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
-		"error": err,
-	})
+	if internal.FaultsActive() {
+		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
+	} else {
+		assert.Always(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
+	}
 	if err != nil {
 		return
 	}
@@ -70,11 +76,19 @@ func SubmitBulk(
 		RequestBody:       elements,
 	})
 
-	assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
-		"ledger":   ledger,
-		"elements": elements,
-		"error":    err,
-	})
+	if internal.FaultsActive() {
+		assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	} else {
+		assert.Always(err == nil, "bulk should be committed successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	}
 	if err != nil {
 		return
 	}
