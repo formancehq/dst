@@ -69,14 +69,22 @@ func SubmitInvalidAtomicBulk(
 		Ledger:            ledger,
 		ContinueOnFailure: pointer.For(false),
 		Atomic:            pointer.For(true),
-		Parallel:          pointer.For(true),
+		Parallel:          pointer.For(false),
 		RequestBody:       elements,
 	})
-	assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
-		"ledger":   ledger,
-		"elements": elements,
-		"error":    err,
-	})
+	if internal.FaultsActive() {
+		assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	} else {
+		assert.Always(err == nil, "bulk should be committed successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	}
 	if err != nil {
 		return
 	}

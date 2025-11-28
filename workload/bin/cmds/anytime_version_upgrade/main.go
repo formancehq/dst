@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
+
+	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/formancehq/dst/workload/internal"
@@ -49,10 +53,35 @@ func main() {
 	// set the version to the latest tag
 	unstructured.SetNestedField(res.Object, string(latest_tag), "spec", "version")
 
-	res, err = dyn.Resource(gvr).Update(context.Background(), res, metav1.UpdateOptions{})
+	_, err = dyn.Resource(gvr).Update(context.Background(), res, metav1.UpdateOptions{})
 
 	assert.Sometimes(err == nil, "stack0-ledger should successfully be updated", internal.Details{
-		"ledger": res,
-		"error":  err,
+		"error": err,
 	})
+
+	if err == nil {
+		path, ok := os.LookupEnv("ANTITHESIS_STOP_FAULTS")
+		if !ok {
+			log.Fatal("failed to find fault pausing executable")
+		}
+		cmd := exec.Command(path, fmt.Sprintf("%v", internal.FAULT_PAUSING_DURATION))
+		fmt.Printf("stopping faults: %v\n", cmd)
+		err := cmd.Run()
+		if err != nil {
+			return
+		}
+		flagFautsPaused()
+	}
+}
+
+func flagFautsPaused() {
+	etcdClient, err := internal.NewEtcdClient()
+	if err != nil {
+		return
+	}
+	defer etcdClient.Close()
+
+	time := fmt.Sprintf("%v", time.Now().Unix())
+	fmt.Printf("/last_paused set to %s\n", time)
+	etcdClient.Put(context.Background(), "/last_pause", time)
 }

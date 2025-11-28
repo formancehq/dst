@@ -4,6 +4,8 @@ build-manifest output:
 	echo "---" >> '{{output}}'
 	cat manifests/postgres.yaml >> '{{output}}'
 	echo "---" >> '{{output}}'
+	cat manifests/etcd.yaml >> '{{output}}'
+	echo "---" >> '{{output}}'
 	helm template regions oci://ghcr.io/formancehq/helm/regions --version 2.15.2 --namespace formance-systems >> '{{output}}'
 	echo "---" >> '{{output}}'
 	cat manifests/stack.yaml >> '{{output}}'
