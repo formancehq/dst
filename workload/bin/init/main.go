@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+	"fmt"
 
 	"github.com/antithesishq/antithesis-sdk-go/lifecycle"
 	"github.com/formancehq/dst/workload/internal"
