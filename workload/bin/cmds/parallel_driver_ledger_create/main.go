@@ -14,7 +14,7 @@ func main() {
 	log.Println("composer: parallel_driver_ledger_create")
 	ctx := context.Background()
 	client := internal.NewClient()
-	id := random.GetRandom()%1e6
+	id := random.GetRandom() % 1e6
 	ledger := fmt.Sprintf("ledger-%d", id)
 
 	_, err := internal.CreateLedger(

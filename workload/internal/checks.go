@@ -32,7 +32,7 @@ func CheckVolumes(volumes map[string]shared.V2Volume, allowedOverdraft map[strin
 func CheckVolume(input *big.Int, output *big.Int, balance *big.Int, details Details) {
 	actualBalance := new(big.Int).Set(input)
 	actualBalance.Sub(actualBalance, output)
-	assert.Always(balance.Cmp(balance) == 0, "reported balance and volumes should be consistent", details.With(Details{
+	assert.Always(balance.Cmp(actualBalance) == 0, "reported balance and volumes should be consistent", details.With(Details{
 		"input":         input,
 		"output":        output,
 		"balance":       balance,

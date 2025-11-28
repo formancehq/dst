@@ -52,9 +52,11 @@ func checkVolumesConsistent(ctx context.Context, client *client.Formance, ledger
 					"error": err,
 				}),
 			)
-			var getAccountError *sdkerrors.V2ErrorResponse
-			if errors.As(err, &getAccountError) {
-				assert.AlwaysOrUnreachable(getAccountError.ErrorCode != shared.V2ErrorsEnumNotFound, "account reported by volumes endpoint should always exist", details)
+			if err != nil {
+				var getAccountError *sdkerrors.V2ErrorResponse
+				if errors.As(err, &getAccountError) {
+					assert.AlwaysOrUnreachable(getAccountError.ErrorCode != shared.V2ErrorsEnumNotFound, "account reported by volumes endpoint should always exist", details)
+				}
 				continue
 			}
 			actualVolumes := account.V2AccountResponse.Data.Volumes
