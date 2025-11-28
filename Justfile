@@ -1,4 +1,4 @@
-run-6min description='manual run (short)': push-daily-run
+run-short description='manual run (short)': push-daily-run
     curl --fail \
         --user "formance:$ANTITHESIS_PASSWORD" \
         -X POST https://formance.antithesis.com/api/v1/launch_experiment/formance-k8s -d '{ \
@@ -11,7 +11,7 @@ run-6min description='manual run (short)': push-daily-run
           } \
         }'
 
-run-1h description='manual run (1h)': push-daily-run
+run-long description='manual run (1h)': push-daily-run
     curl --fail \
         --user "formance:$ANTITHESIS_PASSWORD" \
         -X POST https://formance.antithesis.com/api/v1/launch_experiment/formance-k8s -d '{ \
