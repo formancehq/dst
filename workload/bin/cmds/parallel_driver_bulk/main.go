@@ -65,7 +65,7 @@ func SubmitBulk(
 	_, err := client.Ledger.V2.CreateBulk(ctx, operations.V2CreateBulkRequest{
 		Ledger:            ledger,
 		ContinueOnFailure: pointer.For(false),
-		Atomic:            pointer.For(true),
+		Atomic:            pointer.For(false),
 		Parallel:          pointer.For(true),
 		RequestBody:       elements,
 	})
