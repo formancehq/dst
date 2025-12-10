@@ -8,7 +8,7 @@ import (
 	etcd "go.etcd.io/etcd/client/v3"
 )
 
-const FAULT_PAUSING_DURATION int64 = 30
+const FAULT_PAUSING_DURATION int64 = 60
 
 func NewEtcdClient() (*etcd.Client, error) {
 	return etcd.New(etcd.Config{
@@ -21,8 +21,9 @@ func NewEtcdClient() (*etcd.Client, error) {
 	})
 }
 
+const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
+
 func FaultsActive() bool {
-	const SAFETY_MARGIN int64 = 5
 
 	etcdClient, err := NewEtcdClient()
 	if err != nil {
@@ -43,5 +44,5 @@ func FaultsActive() bool {
 		return true
 	}
 	sinceLastPause := time.Now().Unix() - lastPauseUnix
-	return sinceLastPause > FAULT_PAUSING_DURATION-SAFETY_MARGIN
+	return sinceLastPause < AVAILABILITY_ASSERTIONS_SAFETY_MARGIN || sinceLastPause > FAULT_PAUSING_DURATION-AVAILABILITY_ASSERTIONS_SAFETY_MARGIN
 }

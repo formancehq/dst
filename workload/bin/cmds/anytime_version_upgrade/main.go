@@ -20,7 +20,39 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
+const FAULTS_PAUSING_SAFETY_MARGIN int64 = 5
+
+// The upgrade process goes as follows:
+// - Pause the fault injector for 30s
+// - Wait 2 seconds for it to actually clear all faults
+// - Flag faults as paused to enable availability assertions
+// - Upgrade the CRD
+// - If successfull, set `/upgraded` to "true"
 func main() {
+	if !canUpgrade() {
+		fmt.Printf("already up to date, nothing to do")
+		return
+	}
+
+	path, ok := os.LookupEnv("ANTITHESIS_STOP_FAULTS")
+	if !ok {
+		log.Fatal("failed to find fault pausing executable")
+	}
+	cmd := exec.Command(path, fmt.Sprintf("%v", internal.FAULT_PAUSING_DURATION))
+	fmt.Printf("stopping faults: %v\n", cmd)
+	err := cmd.Run()
+	if err != nil {
+		return
+	}
+
+	// give time for the fault injector to pause all faults before upgrading
+	time.Sleep(time.Duration(FAULTS_PAUSING_SAFETY_MARGIN) * time.Second)
+
+	flagFaultsPaused()
+
+	// let availability assertions run a bit before kicking off the upgrade
+	time.Sleep(time.Duration(internal.AVAILABILITY_ASSERTIONS_SAFETY_MARGIN) * time.Second * 2)
+
 	// get latest version
 	latest_tag, err := os.ReadFile("/ledger_latest_tag")
 	if err != nil {
@@ -60,21 +92,36 @@ func main() {
 	})
 
 	if err == nil {
-		path, ok := os.LookupEnv("ANTITHESIS_STOP_FAULTS")
-		if !ok {
-			log.Fatal("failed to find fault pausing executable")
-		}
-		cmd := exec.Command(path, fmt.Sprintf("%v", internal.FAULT_PAUSING_DURATION))
-		fmt.Printf("stopping faults: %v\n", cmd)
-		err := cmd.Run()
-		if err != nil {
-			return
-		}
-		flagFautsPaused()
+		flagUpgradeDone()
 	}
 }
 
-func flagFautsPaused() {
+// only returns true if we were able to verify that no upgrade has taken place already
+func canUpgrade() bool {
+	etcdClient, err := internal.NewEtcdClient()
+	if err != nil {
+		return false
+	}
+	defer etcdClient.Close()
+
+	lastPause, err := etcdClient.Get(context.Background(), "/upgraded")
+	if err != nil {
+		return false
+	}
+
+	return len(lastPause.Kvs) == 0
+}
+
+func flagUpgradeDone() {
+	etcdClient, err := internal.NewEtcdClient()
+	if err != nil {
+		return
+	}
+	defer etcdClient.Close()
+	etcdClient.Put(context.Background(), "/upgraded", "true")
+}
+
+func flagFaultsPaused() {
 	etcdClient, err := internal.NewEtcdClient()
 	if err != nil {
 		return
