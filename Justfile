@@ -7,7 +7,7 @@ run-short description='manual run (short)': push-daily-run
             "antithesis.report.recipients": "'"$ANTITHESIS_REPORT_RECIPIENT"'", \
             "antithesis.config_image": "antithesis-config:daily_run", \
             "antithesis.description": "{{description}}", \
-            "antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:v2.10.1;ghcr.io/formancehq/operator-utils:v2.0.14;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
+            "antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:d698973e59dd3603383a3ddb6a35c73f2727d46d;ghcr.io/formancehq/operator-utils:v3.2.0;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
           } \
         }'
 
@@ -20,7 +20,7 @@ run-long description='manual run (1h)': push-daily-run
             "antithesis.report.recipients": "'"$ANTITHESIS_REPORT_RECIPIENT"'", \
             "antithesis.config_image": "antithesis-config:daily_run", \
             "antithesis.description": "{{description}}", \
-            "antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:v2.10.1;ghcr.io/formancehq/operator-utils:v2.0.14;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
+            "antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:v2.10.1;ghcr.io/formancehq/operator-utils:v3.2.0;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
           } \
         }'
 
