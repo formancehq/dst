@@ -29,7 +29,7 @@ func SubmitInvalidAtomicBulk(
 	// insert valid transactions
 	elements := []shared.V2BulkElement{}
 	for range txCount {
-		destination := random.RandomChoice([]string{"world", fmt.Sprintf("never:bulk_atomicity:%d", random.GetRandom()%internal.USER_ACCOUNT_COUNT)})
+		destination := random.RandomChoice([]string{"world", fmt.Sprintf("never:bulk_atomicity:%d", random.GetRandom()%1000000)})
 		elements = append(elements, shared.CreateV2BulkElementCreateTransaction(
 			shared.V2BulkElementCreateTransaction{
 				Ik: nil,

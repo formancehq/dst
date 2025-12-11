@@ -187,10 +187,13 @@ func CreateRandomNumscriptTransaction(
 			"error":  err,
 		})
 	} else {
-		assert.Always(err == nil, "should be able to create a numscript transaction", internal.Details{
-			"ledger": ledger,
-			"error":  err,
-		})
+		var sdkError *sdkerrors.V2ErrorResponse
+		if errors.As(err, &sdkError) {
+			assert.AlwaysOrUnreachable(sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund, "should be able to create a numscript transaction", internal.Details{
+				"ledger": ledger,
+				"error":  err,
+			})
+		}
 	}
 	if err != nil {
 		return

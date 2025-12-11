@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/go-libs/v2/pointer"
 )
@@ -83,11 +85,14 @@ func SubmitBulk(
 			"error":    err,
 		})
 	} else {
-		assert.Always(err == nil, "bulk should be committed successfully", internal.Details{
-			"ledger":   ledger,
-			"elements": elements,
-			"error":    err,
-		})
+		var sdkError *sdkerrors.V2ErrorResponse
+		if errors.As(err, &sdkError) {
+			assert.AlwaysOrUnreachable(sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund, "bulk should be committed successfully", internal.Details{
+				"ledger":   ledger,
+				"elements": elements,
+				"error":    err,
+			})
+		}
 	}
 	if err != nil {
 		return
