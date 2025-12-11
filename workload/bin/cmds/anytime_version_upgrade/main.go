@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
+	"github.com/antithesishq/antithesis-sdk-go/random"
 	"github.com/formancehq/dst/workload/internal"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,24 +35,26 @@ func main() {
 		return
 	}
 
-	path, ok := os.LookupEnv("ANTITHESIS_STOP_FAULTS")
-	if !ok {
-		log.Fatal("failed to find fault pausing executable")
+	if random.RandomChoice([]uint8{0, 1}) == 1 {
+		path, ok := os.LookupEnv("ANTITHESIS_STOP_FAULTS")
+		if !ok {
+			log.Fatal("failed to find fault pausing executable")
+		}
+		cmd := exec.Command(path, fmt.Sprintf("%v", internal.FAULT_PAUSING_DURATION))
+		fmt.Printf("stopping faults: %v\n", cmd)
+		err := cmd.Run()
+		if err != nil {
+			return
+		}
+
+		// give time for the fault injector to pause all faults before upgrading
+		time.Sleep(time.Duration(FAULTS_PAUSING_SAFETY_MARGIN) * time.Second)
+
+		flagFaultsPaused()
+
+		// let availability assertions run a bit before kicking off the upgrade
+		time.Sleep(time.Duration(internal.AVAILABILITY_ASSERTIONS_SAFETY_MARGIN) * time.Second * 2)
 	}
-	cmd := exec.Command(path, fmt.Sprintf("%v", internal.FAULT_PAUSING_DURATION))
-	fmt.Printf("stopping faults: %v\n", cmd)
-	err := cmd.Run()
-	if err != nil {
-		return
-	}
-
-	// give time for the fault injector to pause all faults before upgrading
-	time.Sleep(time.Duration(FAULTS_PAUSING_SAFETY_MARGIN) * time.Second)
-
-	flagFaultsPaused()
-
-	// let availability assertions run a bit before kicking off the upgrade
-	time.Sleep(time.Duration(internal.AVAILABILITY_ASSERTIONS_SAFETY_MARGIN) * time.Second * 2)
 
 	// get latest version
 	latest_tag, err := os.ReadFile("/ledger_latest_tag")
