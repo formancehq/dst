@@ -24,7 +24,7 @@ func main() {
 		ledger,
 	)
 
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "ledger should have been created properly", internal.Details{
 			"error": err,
 		})

@@ -124,3 +124,11 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 		return &res.V2TransactionsCursorResponse.Cursor.Data[0].Timestamp, nil
 	}
 }
+
+func SuccessOrInsufficientFunds(err error) bool {
+	var sdkError *sdkerrors.V2ErrorResponse
+	if errors.As(err, &sdkError) {
+		return sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund
+	}
+	return true
+}

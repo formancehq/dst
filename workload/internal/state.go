@@ -23,7 +23,7 @@ func NewEtcdClient() (*etcd.Client, error) {
 
 const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
 
-func FaultsActive() bool {
+func FaultsActive(ctx context.Context) bool {
 
 	etcdClient, err := NewEtcdClient()
 	if err != nil {
@@ -31,7 +31,7 @@ func FaultsActive() bool {
 	}
 	defer etcdClient.Close()
 
-	lastPause, err := etcdClient.Get(context.Background(), "/last_pause")
+	lastPause, err := etcdClient.Get(ctx, "/last_pause")
 	if err != nil {
 		return true
 	}

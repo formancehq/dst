@@ -131,7 +131,7 @@ func flagFaultsPaused() {
 	}
 	defer etcdClient.Close()
 
-	time := fmt.Sprintf("%v", time.Now().Unix())
-	fmt.Printf("/last_paused set to %s\n", time)
-	etcdClient.Put(context.Background(), "/last_pause", time)
+	pause_time := fmt.Sprintf("%v", time.Now().Unix())
+	fmt.Printf("/last_pause set to %s\n", pause_time)
+	etcdClient.Put(context.Background(), "/last_pause", pause_time)
 }

@@ -25,7 +25,7 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
 			"error": err,
 		})
@@ -95,21 +95,18 @@ func CreateRandomPostingsTransaction(
 			Metadata:  metadata,
 		},
 	})
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
 			"ledger":   ledger,
 			"postings": postings,
 			"error":    err,
 		})
-	} else {
-		var sdkError *sdkerrors.V2ErrorResponse
-		if errors.As(err, &sdkError) {
-			assert.AlwaysOrUnreachable(sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund, "should be able to create a postings transaction", internal.Details{
-				"ledger":   ledger,
-				"postings": postings,
-				"error":    err,
-			})
-		}
+	} else if !internal.SuccessOrInsufficientFunds(err) {
+		assert.Unreachable("should be able to create a postings transaction", internal.Details{
+			"ledger":   ledger,
+			"postings": postings,
+			"error":    err,
+		})
 	}
 	if err != nil {
 		return
@@ -181,19 +178,16 @@ func CreateRandomNumscriptTransaction(
 			Timestamp: timestamp,
 		},
 	})
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
 			"ledger": ledger,
 			"error":  err,
 		})
-	} else {
-		var sdkError *sdkerrors.V2ErrorResponse
-		if errors.As(err, &sdkError) {
-			assert.AlwaysOrUnreachable(sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund, "should be able to create a numscript transaction", internal.Details{
-				"ledger": ledger,
-				"error":  err,
-			})
-		}
+	} else if !internal.SuccessOrInsufficientFunds(err) {
+		assert.Unreachable("should be able to create a numscript transaction", internal.Details{
+			"ledger": ledger,
+			"error":  err,
+		})
 	}
 	if err != nil {
 		return

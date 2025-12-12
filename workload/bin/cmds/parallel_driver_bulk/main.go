@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"log"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
-	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/go-libs/v2/pointer"
 )
@@ -24,7 +22,7 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
 			"error": err,
 		})
@@ -78,21 +76,18 @@ func SubmitBulk(
 		RequestBody:       elements,
 	})
 
-	if internal.FaultsActive() {
+	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
 			"ledger":   ledger,
 			"elements": elements,
 			"error":    err,
 		})
-	} else {
-		var sdkError *sdkerrors.V2ErrorResponse
-		if errors.As(err, &sdkError) {
-			assert.AlwaysOrUnreachable(sdkError.ErrorCode == shared.V2ErrorsEnumInsufficientFund, "bulk should be committed successfully", internal.Details{
-				"ledger":   ledger,
-				"elements": elements,
-				"error":    err,
-			})
-		}
+	} else if !internal.SuccessOrInsufficientFunds(err) {
+		assert.Unreachable("bulk should be committed successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
 	}
 	if err != nil {
 		return

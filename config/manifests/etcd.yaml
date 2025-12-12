@@ -42,6 +42,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: ETCD_DATA_DIR
+              value: "/var/run/etcd/default.etcd"
             - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
               value: "http://$(ETCD_NAME).etcd.default.svc.cluster.local:2380"
             - name: ETCD_ADVERTISE_CLIENT_URLS
