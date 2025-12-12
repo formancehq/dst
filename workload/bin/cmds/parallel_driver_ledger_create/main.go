@@ -24,9 +24,15 @@ func main() {
 		ledger,
 	)
 
-	assert.Sometimes(err == nil, "ledger should have been created properly", internal.Details{
-		"error": err,
-	})
+	if internal.FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "ledger should have been created properly", internal.Details{
+			"error": err,
+		})
+	} else {
+		assert.Always(err == nil, "ledger should have been created properly", internal.Details{
+			"error": err,
+		})
+	}
 
 	log.Println("composer: parallel_driver_ledger_create: done")
 }

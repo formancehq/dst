@@ -25,9 +25,15 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
-		"error": err,
-	})
+	if internal.FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
+	} else {
+		assert.Always(err == nil, "should be able to get a random ledger", internal.Details{
+			"error": err,
+		})
+	}
 	if err != nil {
 		return
 	}
@@ -89,11 +95,19 @@ func CreateRandomPostingsTransaction(
 			Metadata:  metadata,
 		},
 	})
-	assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
-		"ledger":   ledger,
-		"postings": postings,
-		"error":    err,
-	})
+	if internal.FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
+			"ledger":   ledger,
+			"postings": postings,
+			"error":    err,
+		})
+	} else if !internal.SuccessOrInsufficientFunds(err) {
+		assert.Unreachable("should be able to create a postings transaction", internal.Details{
+			"ledger":   ledger,
+			"postings": postings,
+			"error":    err,
+		})
+	}
 	if err != nil {
 		return
 	}
@@ -164,10 +178,17 @@ func CreateRandomNumscriptTransaction(
 			Timestamp: timestamp,
 		},
 	})
-	assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
-		"ledger": ledger,
-		"error":  err,
-	})
+	if internal.FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
+			"ledger": ledger,
+			"error":  err,
+		})
+	} else if !internal.SuccessOrInsufficientFunds(err) {
+		assert.Unreachable("should be able to create a numscript transaction", internal.Details{
+			"ledger": ledger,
+			"error":  err,
+		})
+	}
 	if err != nil {
 		return
 	}

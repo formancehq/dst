@@ -29,7 +29,7 @@ func SubmitInvalidAtomicBulk(
 	// insert valid transactions
 	elements := []shared.V2BulkElement{}
 	for range txCount {
-		destination := random.RandomChoice([]string{"world", fmt.Sprintf("never:bulk_atomicity:%d", random.GetRandom()%internal.USER_ACCOUNT_COUNT)})
+		destination := random.RandomChoice([]string{"world", fmt.Sprintf("never:bulk_atomicity:%d", random.GetRandom()%1000000)})
 		elements = append(elements, shared.CreateV2BulkElementCreateTransaction(
 			shared.V2BulkElementCreateTransaction{
 				Ik: nil,
@@ -69,14 +69,23 @@ func SubmitInvalidAtomicBulk(
 		Ledger:            ledger,
 		ContinueOnFailure: pointer.For(false),
 		Atomic:            pointer.For(true),
-		Parallel:          pointer.For(true),
+		Parallel:          pointer.For(false),
 		RequestBody:       elements,
 	})
-	assert.Sometimes(err == nil, "bulk should be committed successfully", internal.Details{
-		"ledger":   ledger,
-		"elements": elements,
-		"error":    err,
-	})
+	// all invidivual bulk elements should fail but CreateBulk should succeed
+	if internal.FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "bulk should be submitted successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	} else {
+		assert.Always(err == nil, "bulk should be submitted successfully", internal.Details{
+			"ledger":   ledger,
+			"elements": elements,
+			"error":    err,
+		})
+	}
 	if err != nil {
 		return
 	}
