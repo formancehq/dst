@@ -27,9 +27,6 @@ RUN apt-get update && apt-get install -y postgresql-client curl
 
 COPY --from=compiler /instrumented/customer/ledger /bin/ledger
 COPY --from=compiler /instrumented/symbols/ /symbols
-COPY entrypoint.sh /bin/entrypoint.sh
 
-RUN chmod 777 /bin/entrypoint.sh
-
-ENTRYPOINT ["/bin/entrypoint.sh"]
-EXPOSE 8080
+ENTRYPOINT ["/usr/bin/ledger"]
+CMD ["serve"]
