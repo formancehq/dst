@@ -19,6 +19,16 @@ spec:
   value: "formancehq/ledger-instrumented"
 ---
 apiVersion: formance.com/v1beta1
+kind: Settings
+metadata:
+  name: formance-setting-ledger-grace-period
+spec:
+  key: modules.*.grace-period
+  stacks:
+    - "stack0"
+  value: "5s"
+---
+apiVersion: formance.com/v1beta1
 kind: Stack
 metadata:
   name: stack0
