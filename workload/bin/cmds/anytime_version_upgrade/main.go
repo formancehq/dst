@@ -77,6 +77,8 @@ func main() {
 }
 
 // only returns true if we were able to verify that no upgrade has taken place already
+//
+//nolint:errcheck
 func canUpgrade() bool {
 	etcdClient, err := internal.NewEtcdClient()
 	if err != nil {
@@ -92,6 +94,7 @@ func canUpgrade() bool {
 	return len(lastPause.Kvs) == 0
 }
 
+//nolint:errcheck
 func flagUpgradeDone() {
 	etcdClient, err := internal.NewEtcdClient()
 	if err != nil {
@@ -101,6 +104,7 @@ func flagUpgradeDone() {
 	etcdClient.Put(context.Background(), "/upgraded", "true")
 }
 
+//nolint:errcheck
 func flagFaultsPaused() {
 	etcdClient, err := internal.NewEtcdClient()
 	if err != nil {

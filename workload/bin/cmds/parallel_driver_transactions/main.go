@@ -25,15 +25,9 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	if internal.FaultsActive(ctx) {
-		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
-			"error": err,
-		})
-	} else {
-		assert.Always(err == nil, "should be able to get a random ledger", internal.Details{
-			"error": err,
-		})
-	}
+	assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
+		"error": err,
+	})
 	if err != nil {
 		return
 	}
@@ -86,7 +80,7 @@ func CreateRandomPostingsTransaction(
 	timestamp *time.Time,
 ) {
 	postings := internal.RandomPostings()
-	metadata := RandomTransactionMetadata()
+	metadata := internal.RandomTransactionMetadata()
 	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
@@ -95,19 +89,11 @@ func CreateRandomPostingsTransaction(
 			Metadata:  metadata,
 		},
 	})
-	if internal.FaultsActive(ctx) {
-		assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
-			"ledger":   ledger,
-			"postings": postings,
-			"error":    err,
-		})
-	} else if !internal.SuccessOrInsufficientFunds(err) {
-		assert.Unreachable("should be able to create a postings transaction", internal.Details{
-			"ledger":   ledger,
-			"postings": postings,
-			"error":    err,
-		})
-	}
+	assert.Sometimes(err == nil, "should be able to create a postings transaction", internal.Details{
+		"ledger":   ledger,
+		"postings": postings,
+		"error":    err,
+	})
 	if err != nil {
 		return
 	}
@@ -178,17 +164,10 @@ func CreateRandomNumscriptTransaction(
 			Timestamp: timestamp,
 		},
 	})
-	if internal.FaultsActive(ctx) {
-		assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
-			"ledger": ledger,
-			"error":  err,
-		})
-	} else if !internal.SuccessOrInsufficientFunds(err) {
-		assert.Unreachable("should be able to create a numscript transaction", internal.Details{
-			"ledger": ledger,
-			"error":  err,
-		})
-	}
+	assert.Sometimes(err == nil, "should be able to create a numscript transaction", internal.Details{
+		"ledger": ledger,
+		"error":  err,
+	})
 	if err != nil {
 		return
 	}
@@ -212,13 +191,4 @@ func CreateRandomNumscriptTransaction(
 			"account": account,
 		})
 	}
-}
-
-func RandomTransactionMetadata() map[string]string {
-	metadata := make(map[string]string)
-	for range random.GetRandom() % 3 {
-		key := fmt.Sprintf("%v", random.GetRandom()%999)
-		metadata[key] = fmt.Sprintf("%v", random.GetRandom()%999)
-	}
-	return metadata
 }

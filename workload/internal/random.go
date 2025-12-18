@@ -49,3 +49,12 @@ func RandomTimestamp(presentTime time.Time) *time.Time {
 		&offsetTime,
 	})
 }
+
+func RandomTransactionMetadata() map[string]string {
+	metadata := make(map[string]string)
+	for range random.GetRandom() % 3 {
+		key := fmt.Sprintf("%v", random.GetRandom()%999)
+		metadata[key] = fmt.Sprintf("%v", random.GetRandom()%999)
+	}
+	return metadata
+}

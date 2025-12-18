@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
@@ -107,6 +108,7 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 	return ledgers[randomIndex], nil
 }
 
+// TODO(fix): This is not the present time, it's the time of the last transaction
 func GetPresentTime(ctx context.Context, client *client.Formance, ledger string) (*time.Time, error) {
 	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
@@ -122,6 +124,24 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 		return &now, err
 	} else {
 		return &res.V2TransactionsCursorResponse.Cursor.Data[0].Timestamp, nil
+	}
+}
+
+// TODO(fix): This is not the present time, it's the time of the last transaction
+func GetLastTransactionID(ctx context.Context, client *client.Formance, ledger string) (*big.Int, error) {
+	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
+		Ledger: ledger,
+	})
+	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
+		"ledger": ledger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.V2TransactionsCursorResponse.Cursor.Data) == 0 {
+		return nil, nil
+	} else {
+		return res.V2TransactionsCursorResponse.Cursor.Data[0].ID, nil
 	}
 }
 

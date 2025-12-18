@@ -23,6 +23,7 @@ func NewEtcdClient() (*etcd.Client, error) {
 
 const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
 
+//nolint:errcheck
 func FaultsActive(ctx context.Context) bool {
 
 	etcdClient, err := NewEtcdClient()
