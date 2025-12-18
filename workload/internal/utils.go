@@ -16,6 +16,8 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
+	"github.com/formancehq/go-libs/collectionutils"
+	"github.com/formancehq/go-libs/v2/pointer"
 )
 
 type Details map[string]any
@@ -113,7 +115,7 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
 	})
-	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
+	assert.Sometimes(err == nil, "should be able to get the present transaction", Details{
 		"ledger": ledger,
 	})
 	if err != nil {
@@ -127,10 +129,10 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 	}
 }
 
-// TODO(fix): This is not the present time, it's the time of the last transaction
 func GetLastTransactionID(ctx context.Context, client *client.Formance, ledger string) (*big.Int, error) {
 	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
-		Ledger: ledger,
+		Ledger:   ledger,
+		PageSize: pointer.For(int64(1)),
 	})
 	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
 		"ledger": ledger,
@@ -142,6 +144,25 @@ func GetLastTransactionID(ctx context.Context, client *client.Formance, ledger s
 		return nil, nil
 	} else {
 		return res.V2TransactionsCursorResponse.Cursor.Data[0].ID, nil
+	}
+}
+
+func ListAccounts(ctx context.Context, client *client.Formance, ledger string) ([]string, error) {
+	res, err := client.Ledger.V2.ListAccounts(ctx, operations.V2ListAccountsRequest{
+		Ledger: ledger,
+	})
+	assert.Sometimes(err == nil, "should be able to get the list of accounts", Details{
+		"ledger": ledger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.V2AccountsCursorResponse.Cursor.Data) == 0 {
+		return nil, fmt.Errorf("no accounts")
+	} else {
+		return collectionutils.Map(res.V2AccountsCursorResponse.Cursor.Data, func(acc shared.V2Account) string {
+			return acc.Address
+		}), nil
 	}
 }
 

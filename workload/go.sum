@@ -14,6 +14,8 @@ github.com/emicklei/go-restful/v3 v3.12.2 h1:DhwDP0vY3k8ZzE0RunuJy8GhNpPL6zqLkDf
 github.com/emicklei/go-restful/v3 v3.12.2/go.mod h1:6n3XBCmQQb25CM2LCACGz8ukIrRry+4bhvbpWn3mrbc=
 github.com/formancehq/formance-sdk-go/v3 v3.7.1 h1:N0uCkzlqtKZK/R9TXaL/L7GfHyNlC+tgd7dZFTSl+oA=
 github.com/formancehq/formance-sdk-go/v3 v3.7.1/go.mod h1:2Kb2Z4bN8/I4MQQnuSilvThqeaUtuLaTdmMGIb3nMJY=
+github.com/formancehq/go-libs v1.7.2 h1:zPLkMVigMxcdPQiA8Q0HLPgA/al/hKmLxLw9muDPM1U=
+github.com/formancehq/go-libs v1.7.2/go.mod h1:3+crp7AA/Rllpo9M/ZQslaHkYt9EtXtbE4qYasV201Q=
 github.com/formancehq/go-libs/v2 v2.0.1-0.20241114125605-4a3e447246a9 h1:l6jieaR+sn4Ff+puBDMbTYmT2HTYC7Yt7GTxBAwC3eU=
 github.com/formancehq/go-libs/v2 v2.0.1-0.20241114125605-4a3e447246a9/go.mod h1:m0uKkey9OC/AeyWMwjMfZqhLzoWrPFBk8vuYdSSYj4Y=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=

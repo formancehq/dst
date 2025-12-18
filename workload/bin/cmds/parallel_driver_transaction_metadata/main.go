@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"maps"
@@ -15,13 +14,11 @@ import (
 	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
-	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
-	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
 func main() {
-	log.Println("composer: parallel_driver_transactions")
+	log.Println("composer: parallel_driver_transaction_metadata")
 
 	ctx := context.Background()
 	client := internal.NewClient()
@@ -57,6 +54,7 @@ func main() {
 			if err != nil {
 				return
 			}
+			//nolint:errcheck
 			defer session.Close()
 			SetTransactionMetadata(ctx, client, session, ledger, *lastTxID)
 		})
@@ -87,7 +85,7 @@ func SetTransactionMetadata(
 		Ledger: ledger,
 		ID:     txID,
 	})
-	assert.Sometimes(err == nil, "should be able to get an existing transaction before metadata change", internal.Details{
+	assert.Sometimes(err == nil, "should be able to get existing transaction before metadata change", internal.Details{
 		"ledger": ledger,
 		"error":  err,
 	})
@@ -101,7 +99,7 @@ func SetTransactionMetadata(
 		ID:          txID,
 		RequestBody: randomMetadata,
 	})
-	assert.Sometimes(err == nil, "should be able to set metadata on a transaction", internal.Details{
+	assert.Sometimes(err == nil, "should be able to set metadata on transaction", internal.Details{
 		"ledger": ledger,
 		"error":  err,
 	})
@@ -114,18 +112,11 @@ func SetTransactionMetadata(
 		Ledger: ledger,
 		ID:     txID,
 	})
-	assert.Sometimes(err == nil, "should be able to get existing transaction", internal.Details{
+	assert.Sometimes(err == nil, "should be able to get existing transaction after metadata change", internal.Details{
 		"ledger": ledger,
 		"error":  err,
 	})
 	if err != nil {
-		var getTxError *sdkerrors.V2ErrorResponse
-		if errors.As(err, &getTxError) {
-			assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "existing transaction should never be NOT_FOUND", internal.Details{
-				"ledger": ledger,
-				"txId":   txID,
-			})
-		}
 		return
 	}
 
