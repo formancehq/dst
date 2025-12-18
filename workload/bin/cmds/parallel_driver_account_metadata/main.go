@@ -77,7 +77,7 @@ func SetAccountMetadata(
 	//nolint:errcheck
 	defer mutex.Unlock(ctx)
 
-	preTx, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
+	preAcc, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
 		Ledger:  ledger,
 		Address: account,
 	})
@@ -89,7 +89,7 @@ func SetAccountMetadata(
 		return
 	}
 
-	randomMetadata := internal.RandomTransactionMetadata()
+	randomMetadata := internal.RandomMetadata()
 	_, err = client.Ledger.V2.AddMetadataToAccount(ctx, operations.V2AddMetadataToAccountRequest{
 		Ledger:      ledger,
 		Address:     account,
@@ -104,7 +104,7 @@ func SetAccountMetadata(
 	}
 
 	// Check that we can read it immediately
-	getTxRes, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
+	getAccRes, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
 		Ledger:  ledger,
 		Address: account,
 	})
@@ -116,13 +116,16 @@ func SetAccountMetadata(
 		return
 	}
 
-	expectedMetadata := maps.Clone(preTx.V2AccountResponse.Data.Metadata)
+	expectedMetadata := maps.Clone(preAcc.V2AccountResponse.Data.Metadata)
 	for k, v := range randomMetadata {
 		expectedMetadata[k] = v
 	}
-	assert.Always(maps.Equal(getTxRes.V2AccountResponse.Data.Metadata, expectedMetadata), "new transaction metadata should be correct", internal.Details{
+	assert.Always(maps.Equal(getAccRes.V2AccountResponse.Data.Metadata, expectedMetadata), "new account metadata should be correct", internal.Details{
 		"ledger":   ledger,
-		"actual":   getTxRes.V2AccountResponse.Data.Metadata,
+		"account":  account,
+		"original": preAcc.V2AccountResponse.Data.Metadata,
+		"added":    randomMetadata,
+		"actual":   getAccRes.V2AccountResponse.Data.Metadata,
 		"expected": expectedMetadata,
 	})
 }

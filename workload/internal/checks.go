@@ -18,7 +18,7 @@ func CheckVolumes(volumes map[string]shared.V2Volume, allowedOverdraft map[strin
 			if overdraft, ok := allowedOverdraft[asset]; ok {
 				minimumBalance.Neg(overdraft)
 			}
-			assert.Always(volume.Balance.Cmp(minimumBalance) != -1, "balance exceeds allowed overdraft", details.With(Details{
+			assert.Always(volume.Balance.Cmp(minimumBalance) != -1, "balance should not exceed allowed overdraft", details.With(Details{
 				"asset":     asset,
 				"volume":    volume,
 				"overdraft": allowedOverdraft[asset],

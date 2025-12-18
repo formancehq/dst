@@ -50,7 +50,7 @@ func RandomTimestamp(presentTime time.Time) *time.Time {
 	})
 }
 
-func RandomTransactionMetadata() map[string]string {
+func RandomMetadata() map[string]string {
 	metadata := make(map[string]string)
 	for range random.GetRandom() % 3 {
 		key := fmt.Sprintf("%v", random.GetRandom()%999)

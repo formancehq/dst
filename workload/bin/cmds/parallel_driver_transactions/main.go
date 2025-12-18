@@ -80,7 +80,7 @@ func CreateRandomPostingsTransaction(
 	timestamp *time.Time,
 ) {
 	postings := internal.RandomPostings()
-	metadata := internal.RandomTransactionMetadata()
+	metadata := internal.RandomMetadata()
 	res, err := client.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{

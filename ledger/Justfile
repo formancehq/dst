@@ -9,7 +9,7 @@ push:
 	cd "$tmpdir"
 
 	# wget -O ledger.tar.gz "https://github.com/formancehq/ledger/archive/refs/tags/$LEDGER_TAG.tar.gz"
-	wget -O ledger.tar.gz "https://github.com/formancehq/ledger/archive/1531917e42ad2d6161598bfc07596cd5740caf59.tar.gz"
+	wget -O ledger.tar.gz "https://github.com/formancehq/ledger/archive/74209dc754d85811267425e6d2de5ce68b89f8e4.tar.gz"
 	tar xf ledger.tar.gz --transform='s|^[^/]*|src|'
 	cp "$scriptdir/entrypoint.sh" src/entrypoint.sh
 	docker build -f $scriptdir/Dockerfile -t "ghcr.io/formancehq/ledger-instrumented:$LEDGER_TAG" src

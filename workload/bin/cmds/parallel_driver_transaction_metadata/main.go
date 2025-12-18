@@ -93,7 +93,7 @@ func SetTransactionMetadata(
 		return
 	}
 
-	randomMetadata := internal.RandomTransactionMetadata()
+	randomMetadata := internal.RandomMetadata()
 	_, err = client.Ledger.V2.AddMetadataOnTransaction(ctx, operations.V2AddMetadataOnTransactionRequest{
 		Ledger:      ledger,
 		ID:          txID,
