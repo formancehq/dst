@@ -58,7 +58,7 @@ func main() {
 
 	pool.StopAndWait()
 
-	log.Println("composer: parallel_driver_transactions: done")
+	log.Println("composer: parallel_driver_account_metadata: done")
 }
 
 func SetAccountMetadata(
@@ -69,7 +69,7 @@ func SetAccountMetadata(
 	accounts []string,
 ) {
 
-	account := accounts[int(random.GetRandom())%len(accounts)]
+	account := accounts[int(random.GetRandom()%uint64(len(accounts)))]
 	mutex := concurrency.NewMutex(session, fmt.Sprintf("/ledger/%v/account/%v", ledger, account))
 	if err := mutex.Lock(ctx); err != nil {
 		return
@@ -90,6 +90,7 @@ func SetAccountMetadata(
 	}
 
 	randomMetadata := internal.RandomMetadata()
+	log.Printf("Adding metadata %v to account %v\n", randomMetadata, account)
 	_, err = client.Ledger.V2.AddMetadataToAccount(ctx, operations.V2AddMetadataToAccountRequest{
 		Ledger:      ledger,
 		Address:     account,

@@ -62,7 +62,7 @@ func main() {
 
 	pool.StopAndWait()
 
-	log.Println("composer: parallel_driver_transactions: done")
+	log.Println("composer: parallel_driver_transaction_metadata: done")
 }
 
 func SetTransactionMetadata(
