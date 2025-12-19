@@ -4,6 +4,7 @@ run duration description='manual run': push-daily-run
 		-X POST https://formance.antithesis.com/api/v1/launch_experiment/formance-k8s -d '{ \
 			"params": { \
 				"custom.duration": "{{duration}}", \
+				"custom.containers_to_exclude_from_network_faults":"etcd etcd-0 etcd-1 etcd-2 etcd-0/etcd etcd-1/etcd etcd-2/etcd etcd workload workload/workload", \
 				"antithesis.report.recipients": "'"$ANTITHESIS_REPORT_RECIPIENT"'", \
 				"antithesis.config_image": "antithesis-config:daily_run", \
 				"antithesis.description": "{{description}}", \

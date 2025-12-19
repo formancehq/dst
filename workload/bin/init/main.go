@@ -10,6 +10,7 @@ import (
 
 	"github.com/antithesishq/antithesis-sdk-go/lifecycle"
 	"github.com/formancehq/dst/workload/internal"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 )
 
 func main() {
@@ -19,7 +20,7 @@ func main() {
 	for {
 		time.Sleep(time.Second)
 
-		_, err := client.Ledger.GetInfo(ctx)
+		_, err := client.Ledger.V2.ListLedgers(ctx, operations.V2ListLedgersRequest{})
 		if err != nil {
 			fmt.Printf("Not ready: %s\n", err)
 			continue

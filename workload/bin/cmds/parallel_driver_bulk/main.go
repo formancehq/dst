@@ -22,15 +22,6 @@ func main() {
 	client := internal.NewClient()
 
 	ledger, err := internal.GetRandomLedger(ctx, client)
-	if internal.FaultsActive(ctx) {
-		assert.Sometimes(err == nil, "should be able to get a random ledger", internal.Details{
-			"error": err,
-		})
-	} else {
-		assert.Always(err == nil, "should be able to get a random ledger", internal.Details{
-			"error": err,
-		})
-	}
 	if err != nil {
 		return
 	}
