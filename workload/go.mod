@@ -18,6 +18,15 @@ require (
 )
 
 require (
+	github.com/ThreeDotsLabs/watermill v1.4.1 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
+	github.com/oklog/ulid v1.3.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
+)
+
+require (
 	github.com/coreos/go-semver v0.3.1 // indirect
 	github.com/coreos/go-systemd/v22 v22.5.0 // indirect
 	github.com/formancehq/go-libs v1.7.2

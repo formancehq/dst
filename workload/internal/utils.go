@@ -17,6 +17,7 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
 	"github.com/formancehq/go-libs/collectionutils"
+	"github.com/formancehq/go-libs/httpclient"
 	"github.com/formancehq/go-libs/v2/pointer"
 )
 
@@ -38,10 +39,17 @@ func NewClient() *client.Formance {
 	if gateway == "" {
 		gateway = "http://gateway.stack0.svc.cluster.local:8080/"
 	}
+
+	transport := http.DefaultTransport
+	if os.Getenv("DEBUG") == "true" {
+		transport = httpclient.NewDebugHTTPTransport(transport)
+	}
+
 	return client.New(
 		client.WithServerURL(gateway),
 		client.WithClient(&http.Client{
-			Timeout: time.Minute,
+			Timeout:   time.Minute,
+			Transport: transport,
 		}),
 		client.WithRetryConfig(retry.Config{
 			Strategy: "backoff",

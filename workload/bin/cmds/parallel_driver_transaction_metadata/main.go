@@ -94,6 +94,7 @@ func SetTransactionMetadata(
 	}
 
 	randomMetadata := internal.RandomMetadata()
+	log.Printf("Adding metadata %v to transaction %v\n", randomMetadata, txID)
 	_, err = client.Ledger.V2.AddMetadataOnTransaction(ctx, operations.V2AddMetadataOnTransactionRequest{
 		Ledger:      ledger,
 		ID:          txID,
@@ -126,6 +127,9 @@ func SetTransactionMetadata(
 	}
 	assert.Always(maps.Equal(getTxRes.V2GetTransactionResponse.Data.Metadata, expectedMetadata), "new transaction metadata should be correct", internal.Details{
 		"ledger":   ledger,
+		"txID":     txID,
+		"original": preTx.V2GetTransactionResponse.Data.Metadata,
+		"added":    randomMetadata,
 		"actual":   getTxRes.V2GetTransactionResponse.Data.Metadata,
 		"expected": expectedMetadata,
 	})

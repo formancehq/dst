@@ -108,6 +108,7 @@ func CreateRandomPostingsTransaction(
 		assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed postings transactions", internal.Details{
 			"ledger": ledger,
 			"txId":   res.V2CreateTransactionResponse.Data.ID,
+			"error":  err,
 		})
 	}
 
@@ -182,6 +183,7 @@ func CreateRandomNumscriptTransaction(
 		assert.AlwaysOrUnreachable(getTxError.ErrorCode != shared.V2ErrorsEnumNotFound, "should always be able to read committed numscript transactions", internal.Details{
 			"ledger": ledger,
 			"txId":   res.V2CreateTransactionResponse.Data.ID,
+			"error":  err,
 		})
 	}
 
