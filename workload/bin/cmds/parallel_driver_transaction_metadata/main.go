@@ -69,7 +69,7 @@ func SetTransactionMetadata(
 	ledger string,
 	lastTxID big.Int,
 ) {
-	txID := big.NewInt(int64(random.GetRandom() % lastTxID.Uint64()))
+	txID := big.NewInt(int64(random.GetRandom() % (lastTxID.Uint64() + 1)))
 	mutex := concurrency.NewMutex(session, fmt.Sprintf("/ledger/%v/transaction/%v", ledger, txID))
 	if err := mutex.Lock(ctx); err != nil {
 		return

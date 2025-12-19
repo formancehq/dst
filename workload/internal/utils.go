@@ -169,13 +169,9 @@ func ListAccounts(ctx context.Context, client *client.Formance, ledger string) (
 	if err != nil {
 		return nil, err
 	}
-	if len(res.V2AccountsCursorResponse.Cursor.Data) == 0 {
-		return nil, fmt.Errorf("no accounts")
-	} else {
-		return collectionutils.Map(res.V2AccountsCursorResponse.Cursor.Data, func(acc shared.V2Account) string {
-			return acc.Address
-		}), nil
-	}
+	return collectionutils.Map(res.V2AccountsCursorResponse.Cursor.Data, func(acc shared.V2Account) string {
+		return acc.Address
+	}), nil
 }
 
 func SuccessOrInsufficientFunds(err error) bool {

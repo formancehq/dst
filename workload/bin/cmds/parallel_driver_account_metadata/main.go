@@ -40,6 +40,9 @@ func main() {
 	if err != nil {
 		return
 	}
+	if len(accounts) == 0 {
+		return
+	}
 
 	for range count {
 		pool.Submit(func() {
