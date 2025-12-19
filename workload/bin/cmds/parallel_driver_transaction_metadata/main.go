@@ -72,6 +72,7 @@ func SetTransactionMetadata(
 	ledger string,
 	lastTxID big.Int,
 ) {
+	id := random.GetRandom()
 
 	txID := big.NewInt(int64(random.GetRandom() % lastTxID.Uint64()))
 	mutex := concurrency.NewMutex(session, fmt.Sprintf("/ledger/%v/transaction/%v", ledger, txID))
@@ -80,6 +81,8 @@ func SetTransactionMetadata(
 	}
 	//nolint:errcheck
 	defer mutex.Unlock(ctx)
+
+	log.Printf("%v -> Locked tx %v (%v)\n", id, txID, ledger)
 
 	preTx, err := client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
 		Ledger: ledger,
@@ -94,7 +97,7 @@ func SetTransactionMetadata(
 	}
 
 	randomMetadata := internal.RandomMetadata()
-	log.Printf("Adding metadata %v to transaction %v\n", randomMetadata, txID)
+	log.Printf("%v -> Adding metadata %v to transaction %v\n", id, randomMetadata, txID)
 	_, err = client.Ledger.V2.AddMetadataOnTransaction(ctx, operations.V2AddMetadataOnTransactionRequest{
 		Ledger:      ledger,
 		ID:          txID,
@@ -133,4 +136,5 @@ func SetTransactionMetadata(
 		"actual":   getTxRes.V2GetTransactionResponse.Data.Metadata,
 		"expected": expectedMetadata,
 	})
+	fmt.Printf("%v -> finished", id)
 }
