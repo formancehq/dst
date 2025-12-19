@@ -65,8 +65,6 @@ func SetAccountMetadata(
 	ledger string,
 	accounts []string,
 ) {
-	id := random.GetRandom()
-
 	account := accounts[int(random.GetRandom()%uint64(len(accounts)))]
 	mutex := concurrency.NewMutex(session, fmt.Sprintf("/ledger/%v/account/%v", ledger, account))
 	if err := mutex.Lock(ctx); err != nil {
@@ -74,8 +72,6 @@ func SetAccountMetadata(
 	}
 	//nolint:errcheck
 	defer mutex.Unlock(ctx)
-
-	log.Printf("%v -> Locked account %v (%v)\n", id, account, ledger)
 
 	preAcc, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
 		Ledger:  ledger,
@@ -90,7 +86,6 @@ func SetAccountMetadata(
 	}
 
 	randomMetadata := internal.RandomMetadata()
-	log.Printf("%v -> Adding metadata %v to account %v (%v)\n", id, randomMetadata, account, ledger)
 	_, err = client.Ledger.V2.AddMetadataToAccount(ctx, operations.V2AddMetadataToAccountRequest{
 		Ledger:      ledger,
 		Address:     account,
@@ -128,5 +123,4 @@ func SetAccountMetadata(
 		"actual":   postAcc.V2AccountResponse.Data.Metadata,
 		"expected": expectedMetadata,
 	})
-	fmt.Printf("%v -> finished", id)
 }
