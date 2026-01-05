@@ -31,10 +31,8 @@ func main() {
 
 	pool := pond.New(10, 10e3)
 
-	etcd, err := internal.NewEtcdClient()
-	if err != nil {
-		return
-	}
+	etcd := internal.NewEtcdClient()
+	defer etcd.Close()
 
 	accounts, err := internal.ListAccounts(ctx, client, ledger)
 	if err != nil {
@@ -46,7 +44,7 @@ func main() {
 
 	for range count {
 		pool.Submit(func() {
-			session, err := concurrency.NewSession(etcd)
+			session, err := concurrency.NewSession(&etcd)
 			if err != nil {
 				return
 			}

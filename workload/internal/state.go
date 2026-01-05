@@ -10,8 +10,8 @@ import (
 
 const FAULT_PAUSING_DURATION int64 = 60
 
-func NewEtcdClient() (*etcd.Client, error) {
-	return etcd.New(etcd.Config{
+func NewEtcdClient() etcd.Client {
+	client, err := etcd.New(etcd.Config{
 		Endpoints: []string{
 			"http://etcd-0.etcd.default.svc.cluster.local:2379",
 			"http://etcd-1.etcd.default.svc.cluster.local:2379",
@@ -19,16 +19,16 @@ func NewEtcdClient() (*etcd.Client, error) {
 		},
 		DialTimeout: 5 * time.Second,
 	})
+	if err != nil {
+		panic(err)
+	}
+	return *client
 }
 
 const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
 
 func FaultsActive(ctx context.Context) bool {
-
-	etcdClient, err := NewEtcdClient()
-	if err != nil {
-		return true
-	}
+	etcdClient := NewEtcdClient()
 	defer etcdClient.Close()
 
 	lastPause, err := etcdClient.Get(ctx, "/last_pause")

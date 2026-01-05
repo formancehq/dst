@@ -40,14 +40,12 @@ func main() {
 		return
 	}
 
-	etcd, err := internal.NewEtcdClient()
-	if err != nil {
-		return
-	}
+	etcd := internal.NewEtcdClient()
+	defer etcd.Close()
 
 	for range count {
 		pool.Submit(func() {
-			session, err := concurrency.NewSession(etcd)
+			session, err := concurrency.NewSession(&etcd)
 			if err != nil {
 				return
 			}
