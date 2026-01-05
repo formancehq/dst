@@ -45,7 +45,7 @@ func main() {
 
 	for range count {
 		pool.Submit(func() {
-			session, err := concurrency.NewSession(&etcd)
+			session, err := concurrency.NewSession(etcd)
 			if err != nil {
 				return
 			}

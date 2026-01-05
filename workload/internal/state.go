@@ -10,7 +10,7 @@ import (
 
 const FAULT_PAUSING_DURATION int64 = 60
 
-func NewEtcdClient() etcd.Client {
+func NewEtcdClient() *etcd.Client {
 	client, err := etcd.New(etcd.Config{
 		Endpoints: []string{
 			"http://etcd-0.etcd.default.svc.cluster.local:2379",
@@ -22,7 +22,7 @@ func NewEtcdClient() etcd.Client {
 	if err != nil {
 		panic(err)
 	}
-	return *client
+	return client
 }
 
 const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
