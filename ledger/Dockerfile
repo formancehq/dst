@@ -32,4 +32,6 @@ COPY entrypoint.sh /bin/entrypoint.sh
 RUN chmod 777 /bin/entrypoint.sh
 
 ENTRYPOINT ["/bin/entrypoint.sh"]
+CMD ["serve"]
+
 EXPOSE 8080

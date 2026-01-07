@@ -8,4 +8,4 @@ done
 
 echo "Postgres is ready; serving ledger!"
 
-ledger serve
+ledger "$@"

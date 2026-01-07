@@ -64,6 +64,8 @@ spec:
   volumeClaimTemplates:
     - metadata:
         name: data
+        annotations:
+          kapp.k14s.io/owned-for-deletion: ""
       spec:
         accessModes: ["ReadWriteOnce"]
         resources:
