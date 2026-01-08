@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"math/big"
 	"net/http"
 	"os"
 	"time"
@@ -15,18 +17,17 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/retry"
+	"github.com/formancehq/go-libs/v3/collectionutils"
+	"github.com/formancehq/go-libs/v3/httpclient"
+	"github.com/formancehq/go-libs/v3/pointer"
 )
 
 type Details map[string]any
 
 func (d *Details) With(extra Details) Details {
 	out := make(map[string]any)
-	for k, v := range *d {
-		out[k] = v
-	}
-	for k, v := range extra {
-		out[k] = v
-	}
+	maps.Copy(out, *d)
+	maps.Copy(out, extra)
 	return out
 }
 
@@ -35,10 +36,15 @@ func NewClient() *client.Formance {
 	if gateway == "" {
 		gateway = "http://gateway.stack0.svc.cluster.local:8080/"
 	}
+	transport := http.DefaultTransport
+	if os.Getenv("DEBUG") == "true" {
+		transport = httpclient.NewDebugHTTPTransport(transport)
+	}
 	return client.New(
 		client.WithServerURL(gateway),
 		client.WithClient(&http.Client{
-			Timeout: time.Minute,
+			Timeout:   time.Minute,
+			Transport: transport,
 		}),
 		client.WithRetryConfig(retry.Config{
 			Strategy: "backoff",
@@ -94,6 +100,15 @@ func ListLedgers(ctx context.Context, client *client.Formance) ([]string, error)
 
 func GetRandomLedger(ctx context.Context, client *client.Formance) (string, error) {
 	ledgers, err := ListLedgers(ctx, client)
+	if FaultsActive(ctx) {
+		assert.Sometimes(err == nil, "should be able to get a random ledger", Details{
+			"error": err,
+		})
+	} else {
+		assert.Always(err == nil, "should be able to get a random ledger", Details{
+			"error": err,
+		})
+	}
 	if err != nil {
 		return "", fmt.Errorf("error listing ledgers: %v", err)
 	}
@@ -107,11 +122,12 @@ func GetRandomLedger(ctx context.Context, client *client.Formance) (string, erro
 	return ledgers[randomIndex], nil
 }
 
+// TODO: This is not actually the present time, it's the time of the last committed transaction...
 func GetPresentTime(ctx context.Context, client *client.Formance, ledger string) (*time.Time, error) {
 	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
 	})
-	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
+	assert.Sometimes(err == nil, "should be able to get the present transaction", Details{
 		"ledger": ledger,
 	})
 	if err != nil {
@@ -123,6 +139,39 @@ func GetPresentTime(ctx context.Context, client *client.Formance, ledger string)
 	} else {
 		return &res.V2TransactionsCursorResponse.Cursor.Data[0].Timestamp, nil
 	}
+}
+
+func GetLastTransactionID(ctx context.Context, client *client.Formance, ledger string) (*big.Int, error) {
+	res, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
+		Ledger:   ledger,
+		PageSize: pointer.For(int64(1)),
+	})
+	assert.Sometimes(err == nil, "should be able to get the latest transaction", Details{
+		"ledger": ledger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(res.V2TransactionsCursorResponse.Cursor.Data) == 0 {
+		return nil, nil
+	} else {
+		return res.V2TransactionsCursorResponse.Cursor.Data[0].ID, nil
+	}
+}
+
+func ListAccounts(ctx context.Context, client *client.Formance, ledger string) ([]string, error) {
+	res, err := client.Ledger.V2.ListAccounts(ctx, operations.V2ListAccountsRequest{
+		Ledger: ledger,
+	})
+	assert.Sometimes(err == nil, "should be able to get the list of accounts", Details{
+		"ledger": ledger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return collectionutils.Map(res.V2AccountsCursorResponse.Cursor.Data, func(acc shared.V2Account) string {
+		return acc.Address
+	}), nil
 }
 
 func SuccessOrInsufficientFunds(err error) bool {

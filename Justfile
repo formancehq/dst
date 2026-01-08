@@ -4,10 +4,11 @@ run duration description='manual run': push-daily-run
 		-X POST https://formance.antithesis.com/api/v1/launch_experiment/formance-k8s -d '{ \
 			"params": { \
 				"custom.duration": "{{duration}}", \
+				"custom.containers_to_exclude_from_network_faults":"etcd-0 etcd-1 etcd-2 workload", \
 				"antithesis.report.recipients": "'"$ANTITHESIS_REPORT_RECIPIENT"'", \
 				"antithesis.config_image": "antithesis-config:daily_run", \
 				"antithesis.description": "{{description}}", \
-				"antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:d698973e59dd3603383a3ddb6a35c73f2727d46d;ghcr.io/formancehq/operator-utils:v3.2.0;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
+				"antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:f8217dd41401db27cd2fbdf0a38ff32b97cd1c1d;ghcr.io/formancehq/operator-utils:v3.3.0;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
 			} \
 		}'
 

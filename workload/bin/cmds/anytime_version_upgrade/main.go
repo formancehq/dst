@@ -101,10 +101,7 @@ func main() {
 
 // only returns true if we were able to verify that no upgrade has taken place already
 func canUpgrade() bool {
-	etcdClient, err := internal.NewEtcdClient()
-	if err != nil {
-		return false
-	}
+	etcdClient := internal.NewEtcdClient()
 	defer etcdClient.Close()
 
 	lastPause, err := etcdClient.Get(context.Background(), "/upgraded")
@@ -116,19 +113,14 @@ func canUpgrade() bool {
 }
 
 func flagUpgradeDone() {
-	etcdClient, err := internal.NewEtcdClient()
-	if err != nil {
-		return
-	}
+	etcdClient := internal.NewEtcdClient()
 	defer etcdClient.Close()
+
 	etcdClient.Put(context.Background(), "/upgraded", "true")
 }
 
 func flagFaultsPaused() {
-	etcdClient, err := internal.NewEtcdClient()
-	if err != nil {
-		return
-	}
+	etcdClient := internal.NewEtcdClient()
 	defer etcdClient.Close()
 
 	pause_time := fmt.Sprintf("%v", time.Now().Unix())
