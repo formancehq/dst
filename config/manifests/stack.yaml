@@ -29,13 +29,6 @@ spec:
   value: "5s"
 ---
 apiVersion: formance.com/v1beta1
-kind: Stack
-metadata:
-  name: stack0
-spec:
-  versionsFromFile: v2.0
----
-apiVersion: formance.com/v1beta1
 kind: Gateway
 metadata:
   name: stack0-gateway

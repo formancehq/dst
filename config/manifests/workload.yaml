@@ -22,21 +22,21 @@ spec:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: ledger-updater
+  name: stack-updater
 rules:
   - apiGroups: ["formance.com"]
-    resources: ["ledgers"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    resources: ["ledgers", "stacks"]
+    verbs: ["get", "list", "watch", "update", "patch", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: ledger-updater-binding
+  name: stack-updater-binding
 subjects:
   - kind: ServiceAccount
     name: default
     namespace: formance-systems
 roleRef:
   kind: ClusterRole
-  name: ledger-updater
+  name: stack-updater
   apiGroup: rbac.authorization.k8s.io
