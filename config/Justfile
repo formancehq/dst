@@ -1,8 +1,9 @@
 build-manifest output:
 	rm -f -- '{{output}}'
+	: "${LEDGER_PREVIOUS_TAG:?LEDGER_PREVIOUS_TAG must be set}"
 	helm dependency update
 	helm dependency build
-	helm template . --include-crds --set "ledger.previous_tag=$LEDGER_PREVIOUS_TAG" >> '{{output}}'
+	helm template . --include-crds --set "ledger.previous_tag=$LEDGER_PREVIOUS_TAG" > '{{output}}'
 
 push:
 	#!/usr/bin/env bash
