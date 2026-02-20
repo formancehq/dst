@@ -1,0 +1,6 @@
+dependencies:
+- name: regions
+  repository: oci://ghcr.io/formancehq/helm
+  version: 3.7.2
+digest: sha256:6cfec2747060bafcb9468bceedf53e89338d06695edc4972f2f5110e1eb9eed4
+generated: "2026-02-20T18:02:43.315089657+01:00"

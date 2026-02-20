@@ -8,7 +8,7 @@ run duration description='manual run': push-daily-run
 				"antithesis.report.recipients": "'"$ANTITHESIS_REPORT_RECIPIENT"'", \
 				"antithesis.config_image": "antithesis-config:daily_run", \
 				"antithesis.description": "{{description}}", \
-				"antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:f8217dd41401db27cd2fbdf0a38ff32b97cd1c1d;ghcr.io/formancehq/operator-utils:v3.3.0;ghcr.io/formancehq/gateway:v2.0.24;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
+				"antithesis.images": "'"workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:v3.5.1;ghcr.io/formancehq/operator-utils:v3.5.1;ghcr.io/formancehq/gateway:v2.2.0;ghcr.io/formancehq/ledger-instrumented:$LEDGER_PREVIOUS_TAG;ghcr.io/formancehq/ledger-instrumented:$LEDGER_LATEST_TAG"'" \
 			} \
 		}'
 
