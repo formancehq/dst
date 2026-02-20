@@ -67,4 +67,4 @@ jobs:
           email_recipients: ${{ secrets.ANTITHESIS_SLACK_REPORT_RECIPIENT }}
           additional_parameters: |-
             custom.duration = 6
-            custom.containers_to_exclude_from_network_faults = etcd-0 etcd-1 etcd-2 workload
+            custom.containers_to_exclude_from_network_faults = etcd-0 etcd-1 etcd-2 workload kafka

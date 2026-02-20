@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 )
 
+const KAFKA_BOOTSTRAP_SERVERS = "formance-kafka-bootstrap.kafka.svc.cluster.local:9092"
+
 func ExtractEventPayload[T any](p any, validate func(T) error) (*T, error) {
 	jsonstr, err := json.Marshal(p)
 	if err != nil {

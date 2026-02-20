@@ -29,7 +29,7 @@ func CheckTransactions(ctx context.Context, client *client.Formance, ledgers []s
 	log.Printf("composer: checking events")
 
 	consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
-		"bootstrap.servers":  "formance-kafka-bootstrap.kafka.svc.cluster.local:9092",
+		"bootstrap.servers":  internal.KAFKA_BOOTSTRAP_SERVERS,
 		"group.id":           fmt.Sprintf("correctness-%v", random.GetRandom()),
 		"auto.offset.reset":  "smallest",
 		"enable.auto.commit": false,
