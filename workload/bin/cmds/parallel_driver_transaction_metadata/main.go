@@ -41,7 +41,7 @@ func main() {
 	}
 
 	etcd := internal.NewEtcdClient()
-	defer etcd.Close()
+	defer etcd.Close() //nolint:errcheck
 
 	for range count {
 		pool.Submit(func() {
@@ -49,8 +49,7 @@ func main() {
 			if err != nil {
 				return
 			}
-			//nolint:errcheck
-			defer session.Close()
+			defer session.Close() //nolint:errcheck
 			SetTransactionMetadata(ctx, client, session, ledger, *lastTxID)
 		})
 	}
@@ -72,8 +71,7 @@ func SetTransactionMetadata(
 	if err := mutex.Lock(ctx); err != nil {
 		return
 	}
-	//nolint:errcheck
-	defer mutex.Unlock(ctx)
+	defer mutex.Unlock(ctx) //nolint:errcheck
 
 	preTx, err := client.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{
 		Ledger: ledger,

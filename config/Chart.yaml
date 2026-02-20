@@ -5,3 +5,6 @@ dependencies:
   - name: regions
     repository: oci://ghcr.io/formancehq/helm
     version: 3.7.2
+  - name: strimzi-kafka-operator
+    repository: oci://quay.io/strimzi-helm
+    version: 0.50.0

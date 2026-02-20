@@ -8,3 +8,5 @@ regions:
       create: true
     image:
       tag: v3.5.1
+strimzi-kafka-operator:
+  watchAnyNamespace: true

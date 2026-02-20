@@ -13,6 +13,7 @@ import (
 	"github.com/formancehq/dst/workload/internal"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -63,6 +64,10 @@ func setupStack() {
 		},
 	}, v1.CreateOptions{})
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			fmt.Printf("Stack already exists\n")
+			return
+		}
 		panic(err)
 	}
 }
