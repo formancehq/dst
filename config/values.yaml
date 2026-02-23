@@ -1,0 +1,10 @@
+ledger:
+  previous_tag: v2.2.56
+workload:
+  tag: daily_faults
+regions:
+  operator:
+    operator-crds:
+      create: true
+    image:
+      tag: v3.5.1
