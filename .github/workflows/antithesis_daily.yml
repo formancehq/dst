@@ -20,8 +20,8 @@ jobs:
       OPERATOR_TAG: "v3.5.1"
       OPERATOR_UTILS_TAG: "v3.5.1"
       GATEWAY_TAG: "v2.2.0"
-      LEDGER_PREVIOUS_TAG: "v2.2.47"
-      LEDGER_LATEST_TAG: "v2.3.1"
+      LEDGER_PREVIOUS_TAG: "v2.2.58"
+      LEDGER_LATEST_TAG: "v2.3.13"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
