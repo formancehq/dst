@@ -32,7 +32,7 @@ func main() {
 	pool := pond.New(10, 10e3)
 
 	etcd := internal.NewEtcdClient()
-	defer etcd.Close()
+	defer etcd.Close() //nolint:errcheck
 
 	accounts, err := internal.ListAccounts(ctx, client, ledger)
 	if err != nil {
@@ -48,8 +48,7 @@ func main() {
 			if err != nil {
 				return
 			}
-			//nolint:errcheck
-			defer session.Close()
+			defer session.Close() //nolint:errcheck
 			SetAccountMetadata(ctx, client, session, ledger, accounts)
 		})
 	}
@@ -71,8 +70,7 @@ func SetAccountMetadata(
 	if err := mutex.Lock(ctx); err != nil {
 		return
 	}
-	//nolint:errcheck
-	defer mutex.Unlock(ctx)
+	defer mutex.Unlock(ctx) //nolint:errcheck
 
 	preAcc, err := client.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{
 		Ledger:  ledger,

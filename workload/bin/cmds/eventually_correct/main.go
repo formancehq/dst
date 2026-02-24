@@ -8,9 +8,11 @@ import (
 	"sync"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
+	"github.com/formancehq/dst/workload/bin/cmds/eventually_correct/events"
 	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/go-libs/v3/pointer"
 )
 
 func main() {
@@ -18,7 +20,9 @@ func main() {
 	ctx := context.Background()
 	client := internal.NewClient()
 
-	ledgers, err := client.Ledger.V2.ListLedgers(ctx, operations.V2ListLedgersRequest{})
+	ledgers, err := client.Ledger.V2.ListLedgers(ctx, operations.V2ListLedgersRequest{
+		PageSize: pointer.For(int64(100)),
+	})
 
 	assert.Sometimes(err == nil, "error listing ledgers", internal.Details{
 		"error": err,
@@ -28,7 +32,9 @@ func main() {
 	}
 
 	wg := sync.WaitGroup{}
+	ledgerNames := []string{}
 	for _, ledger := range ledgers.V2LedgerListResponse.Cursor.Data {
+		ledgerNames = append(ledgerNames, ledger.Name)
 		wg.Add(1)
 		go func(ledger string) {
 			defer wg.Done()
@@ -38,6 +44,7 @@ func main() {
 			checkNeverAccounts(ctx, client, ledger)
 		}(ledger.Name)
 	}
+	events.CheckTransactions(ctx, client, ledgerNames)
 	wg.Wait()
 }
 

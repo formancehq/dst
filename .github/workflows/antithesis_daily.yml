@@ -62,9 +62,9 @@ jobs:
           username: ${{ secrets.ANTITHESIS_USERNAME }}
           password: ${{ secrets.ANTITHESIS_PASSWORD }}
           github_token: ${{ secrets.NUMARY_GITHUB_TOKEN }}
-          images: "workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:${{ env.OPERATOR_TAG }};ghcr.io/formancehq/operator-utils:${{ env.OPERATOR_UTILS_TAG }};ghcr.io/formancehq/gateway:${{ env.GATEWAY_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_PREVIOUS_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_LATEST_TAG }}"
+          images: "workload:latest;docker.io/library/postgres:15-alpine;ghcr.io/formancehq/operator:${{ env.OPERATOR_TAG }};ghcr.io/formancehq/operator-utils:${{ env.OPERATOR_UTILS_TAG }};ghcr.io/formancehq/gateway:${{ env.GATEWAY_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_PREVIOUS_TAG }};ghcr.io/formancehq/ledger-instrumented:${{ env.LEDGER_LATEST_TAG }};quay.io/strimzi/operator:0.50.0;quay.io/strimzi/kafka:0.50.0-kafka-4.1.0;docker.io/natsio/nats-box:0.19.2"
           config_image: "antithesis-config:daily_run"
           email_recipients: ${{ secrets.ANTITHESIS_SLACK_REPORT_RECIPIENT }}
           additional_parameters: |-
             custom.duration = 6
-            custom.containers_to_exclude_from_network_faults = etcd-0 etcd-1 etcd-2 workload
+            custom.containers_to_exclude_from_network_faults = etcd-0 etcd-1 etcd-2 workload kafka

@@ -29,7 +29,8 @@ const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
 
 func FaultsActive(ctx context.Context) bool {
 	etcdClient := NewEtcdClient()
-	defer etcdClient.Close()
+
+	defer etcdClient.Close() //nolint:errcheck
 
 	lastPause, err := etcdClient.Get(ctx, "/last_pause")
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -10,9 +11,11 @@ import (
 	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/lifecycle"
+	"github.com/confluentinc/confluent-kafka-go/kafka"
 	"github.com/formancehq/dst/workload/internal"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -25,11 +28,31 @@ func waitForPostgres() {
 	for {
 		conn, err := net.DialTimeout("tcp", "postgres:5432", 500*time.Millisecond)
 		if err != nil {
+			log.Print("waiting for postgres...")
 			time.Sleep(time.Second)
 			continue
 		}
 		_ = conn.Close()
 		return
+	}
+}
+
+func isKafkaReady() bool {
+	admin, err := kafka.NewAdminClient(&kafka.ConfigMap{
+		"bootstrap.servers": internal.KAFKA_BOOTSTRAP_SERVERS,
+	})
+	if err != nil {
+		return false
+	}
+	defer admin.Close()
+	_, err = admin.GetMetadata(nil, false, 5000)
+	return err == nil
+}
+
+func waitForKafka() {
+	for !isKafkaReady() {
+		log.Print("waiting for kafka...")
+		time.Sleep(time.Second)
 	}
 }
 
@@ -63,6 +86,10 @@ func setupStack() {
 		},
 	}, v1.CreateOptions{})
 	if err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			fmt.Printf("Stack already exists\n")
+			return
+		}
 		panic(err)
 	}
 }
@@ -72,6 +99,8 @@ func main() {
 	client := internal.NewClient()
 
 	waitForPostgres()
+
+	waitForKafka()
 
 	setupStack()
 

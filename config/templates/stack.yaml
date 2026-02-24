@@ -29,8 +29,28 @@ spec:
   value: "5s"
 ---
 apiVersion: formance.com/v1beta1
+kind: Settings
+metadata:
+  name: stack0-kafka
+spec:
+  key: broker.dsn
+  stacks:
+    - "stack0"
+  value: "kafka://formance-kafka-bootstrap.kafka.svc.cluster.local:9092?circuitBreakerEnabled=true"
+---
+apiVersion: formance.com/v1beta1
 kind: Gateway
 metadata:
   name: stack0-gateway
 spec:
   stack: stack0
+---
+apiVersion: formance.com/v1beta1
+kind: BrokerConsumer
+metadata:
+  name: ledger-broker-consumer
+spec:
+  stack: stack0
+  queriedBy: admin
+  services:
+    - ledger
