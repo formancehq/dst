@@ -29,6 +29,16 @@ spec:
   value: "5s"
 ---
 apiVersion: formance.com/v1beta1
+kind: Settings
+metadata:
+  name: formance-setting-ledger-termination-grace-period
+spec:
+  key: deployments.*.spec.template.spec.termination-grace-period-seconds
+  stacks:
+    - "stack0"
+  value: "180"
+---
+apiVersion: formance.com/v1beta1
 kind: Gateway
 metadata:
   name: stack0-gateway
