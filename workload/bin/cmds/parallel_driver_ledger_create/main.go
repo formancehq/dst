@@ -17,11 +17,16 @@ func main() {
 	id := random.GetRandom() % 1e6
 	ledger := fmt.Sprintf("ledger-%d", id)
 
+	bucket := ledger
+	if random.RandomChoice([]bool{false, true}) {
+		id := random.GetRandom() % 5
+		bucket = fmt.Sprintf("bucket-%d", id)
+	}
 	_, err := internal.CreateLedger(
 		ctx,
 		client,
 		ledger,
-		ledger,
+		bucket,
 	)
 	if internal.FaultsActive(ctx) {
 		assert.Sometimes(err == nil, "ledger should have been created properly", internal.Details{
