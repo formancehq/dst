@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 	"slices"
+	"strings"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
@@ -80,6 +81,93 @@ func pickCell(s State) (addr, asset string, ok bool) {
 
 // accountAssetVolumes extracts (input, output) for one asset from a GetAccount
 // response. found=false when the asset entry is missing.
+// runMetaRead picks a target the model has metadata for, reads it, and validates
+// the returned metadata against the model's per-cell registers (validateRead).
+func runMetaRead(ctx context.Context, cl *client.Formance, c *Checker) {
+	c.mu.Lock()
+	target, ok := pickMetaTarget(c)
+	dR := c.ticketSeq.Add(1)
+	c.mu.Unlock()
+	if !ok {
+		return
+	}
+
+	var server map[string]string
+	var err error
+	switch target.kind {
+	case metaAccount:
+		var res *operations.V2GetAccountResponse
+		res, err = cl.Ledger.V2.GetAccount(ctx, operations.V2GetAccountRequest{Ledger: c.ledger, Address: target.id})
+		if err == nil {
+			server = res.V2AccountResponse.Data.Metadata
+		}
+	case metaTransaction:
+		id, _ := new(big.Int).SetString(target.id, 10)
+		var res *operations.V2GetTransactionResponse
+		res, err = cl.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{Ledger: c.ledger, ID: id})
+		if err == nil {
+			server = res.V2GetTransactionResponse.Data.Metadata
+		}
+	}
+	// High-water at the read's response: writes dispatched after this can't be in
+	// what the server returned.
+	oR := c.ticketSeq.Load()
+
+	if err != nil {
+		if isTransient(err) {
+			return
+		}
+		// The target (account address / committed transaction) exists, so a
+		// definitive read error is a finding.
+		assert.Unreachable("singleton_driver_model: metadata read returned unexpected error", internal.Details{
+			"ledger": c.ledger,
+			"target": target.id,
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	c.mu.Lock()
+	key, serverVal, valid := c.metaStore.validateRead(target.kind, target.id, dR, oR, server)
+	c.mu.Unlock()
+	if valid {
+		dbg("META READ OK: ledger=%s target=%s", c.ledger, target.id)
+		return
+	}
+
+	assert.Unreachable("singleton_driver_model: metadata read outside model", internal.Details{
+		"ledger":    c.ledger,
+		"target":    target.id,
+		"key":       key,
+		"serverVal": serverVal,
+	})
+}
+
+// pickMetaTarget returns a random target (account or transaction) the model has
+// written metadata to, over a sorted list for replayability. Caller holds c.mu.
+func pickMetaTarget(c *Checker) (metaTarget, bool) {
+	seen := map[metaTarget]bool{}
+	for cell := range c.metaStore.history {
+		seen[metaTarget{kind: cell.kind, id: cell.id}] = true
+	}
+	if len(seen) == 0 {
+		return metaTarget{}, false
+	}
+
+	targets := make([]metaTarget, 0, len(seen))
+	for t := range seen {
+		targets = append(targets, t)
+	}
+	slices.SortFunc(targets, func(a, b metaTarget) int {
+		if a.kind != b.kind {
+			return int(a.kind) - int(b.kind)
+		}
+		return strings.Compare(a.id, b.id)
+	})
+
+	return random.RandomChoice(targets), true
+}
+
 func accountAssetVolumes(acct shared.V2Account, asset string) (in, out *big.Int, found bool) {
 	v, ok := acct.Volumes[asset]
 	if !ok {

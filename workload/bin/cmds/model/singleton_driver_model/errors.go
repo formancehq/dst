@@ -61,6 +61,12 @@ func isTransient(err error) bool {
 	return true
 }
 
+// isNotFound reports whether err is a NOT_FOUND business error.
+func isNotFound(err error) bool {
+	e, ok := errorResponse(err)
+	return ok && e.ErrorCode == shared.V2ErrorsEnumNotFound
+}
+
 // reasonMatches reports whether err's v2 error code is the one the model
 // predicted. A predicted ALREADY_REVERT also accepts REVERT_OCCURRING: both mean
 // the target is being or has been reverted in some serialization, and which one

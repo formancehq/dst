@@ -92,14 +92,24 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 
 		c := random.RandomChoice(checkers)
 
-		if random.RandomChoice([]uint8{0, 1, 2, 3, 4}) == 0 {
+		switch random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}) {
+		case 0, 1: // volume read
 			runRead(ctx, cl, c)
+			time.Sleep(workerLoopPause)
+			continue
+		case 2, 3: // metadata write
+			runMetaWrite(ctx, cl, c)
+			time.Sleep(workerLoopPause)
+			continue
+		case 4: // metadata read
+			runMetaRead(ctx, cl, c)
 			time.Sleep(workerLoopPause)
 			continue
 		}
 
-		// Generate under the lock: a revert reads the committed state to pick a
-		// target, and the ticket must be reserved in dispatch order.
+		// Volume operation (create/revert). Generate under the lock: a revert reads
+		// the committed state to pick a target, and the ticket must be reserved in
+		// dispatch order.
 		c.mu.Lock()
 		op := generateOperation(c.modelState)
 		ticket := c.registerInflight(op)
@@ -125,6 +135,26 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 
 		time.Sleep(workerLoopPause)
 	}
+}
+
+// runMetaWrite dispatches one metadata set/delete and records the outcome. A
+// delete that returns NOT_FOUND is treated as committed (the key was already
+// absent); other errors are treated as not having happened.
+func runMetaWrite(ctx context.Context, cl *client.Formance, c *Checker) {
+	c.mu.Lock()
+	op := generateMetaWrite(c)
+	c.mu.Unlock()
+
+	err := sendMetaOp(ctx, cl, c.ledger, op)
+
+	c.mu.Lock()
+	switch {
+	case err == nil, op.write.deleted && isNotFound(err):
+		c.metaStore.commit(op.cell, op.write, c.ticketSeq.Load())
+	default:
+		c.metaStore.drop(op.cell, op.write)
+	}
+	c.mu.Unlock()
 }
 
 // setupLedger creates one ledger. With the unique per-run names a conflict cannot

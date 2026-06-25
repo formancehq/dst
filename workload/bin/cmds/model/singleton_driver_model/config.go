@@ -19,6 +19,9 @@ const maxPostings = 3
 
 var assets = []string{"USD/2", "EUR/2", "COIN"}
 
+// Metadata key pool size. Small so concurrent writes contend on the same cell.
+const numMetaKeys = 6
+
 // Per-worker breathing room.
 const workerLoopPause = 50 * time.Millisecond
 

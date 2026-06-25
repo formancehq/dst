@@ -46,6 +46,11 @@ type Checker struct {
 	// so it is always the exact predecessor of the next operation to validate,
 	// and the base candidateBases folds the in-flight set onto.
 	modelState State
+
+	// metaStore validates metadata on its own track (see metadata.go): metadata
+	// writes have no observable commit sequence, so they are not linearized
+	// through the re-order buffer.
+	metaStore *metaStore
 }
 
 // observation is one worker → processor message. observeTicket is the ticket
@@ -75,5 +80,6 @@ func NewChecker(ledger string) *Checker {
 		reads:      map[uint64]struct{}{},
 		incoming:   make(chan observation, incomingBuffer),
 		modelState: NewState(),
+		metaStore:  newMetaStore(),
 	}
 }

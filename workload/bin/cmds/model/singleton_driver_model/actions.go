@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	"github.com/formancehq/dst/workload/internal"
@@ -160,6 +162,115 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 	default:
 		panic(fmt.Sprintf("sendOperation: unmodeled kind %d", op.kind))
 	}
+}
+
+// --- Metadata --------------------------------------------------------------
+
+// metaOp is a dispatched metadata write.
+type metaOp struct {
+	cell    metaCell
+	write   *metaWrite
+	idemKey string
+}
+
+// generateMetaWrite plans a metadata set or delete: ~1/4 delete a currently
+// present cell, the rest set a key on a random account or committed transaction
+// to a fresh unique value (unique so a read pinpoints which write it observed).
+// Registers the write and returns it. Caller holds c.mu.
+func generateMetaWrite(c *Checker) metaOp {
+	if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
+		if present := c.metaStore.presentCells(); len(present) > 0 {
+			slices.SortFunc(present, compareMetaCell)
+			cell := random.RandomChoice(present)
+			w := &metaWrite{deleted: true, dispatch: c.ticketSeq.Add(1)}
+			c.metaStore.register(cell, w)
+			return metaOp{cell: cell, write: w, idemKey: idempotencyKey()}
+		}
+	}
+
+	var cell metaCell
+	if ids := committedTxIDs(c.modelState); len(ids) > 0 && random.RandomChoice([]uint8{0, 1}) == 0 {
+		cell = metaCell{kind: metaTransaction, id: random.RandomChoice(ids), key: metaKeyName()}
+	} else {
+		cell = metaCell{kind: metaAccount, id: poolAddress(), key: metaKeyName()}
+	}
+
+	w := &metaWrite{value: metaValue(), dispatch: c.ticketSeq.Add(1)}
+	c.metaStore.register(cell, w)
+	return metaOp{cell: cell, write: w, idemKey: idempotencyKey()}
+}
+
+// sendMetaOp dispatches a metadata set or delete to the ledger.
+func sendMetaOp(ctx context.Context, cl *client.Formance, ledger string, op metaOp) error {
+	switch op.cell.kind {
+	case metaAccount:
+		if op.write.deleted {
+			_, err := cl.Ledger.V2.DeleteAccountMetadata(ctx, operations.V2DeleteAccountMetadataRequest{
+				Ledger: ledger, Address: op.cell.id, Key: op.cell.key,
+				IdempotencyKey: pointer.For(op.idemKey),
+			})
+			return err
+		}
+		_, err := cl.Ledger.V2.AddMetadataToAccount(ctx, operations.V2AddMetadataToAccountRequest{
+			Ledger: ledger, Address: op.cell.id,
+			IdempotencyKey: pointer.For(op.idemKey),
+			RequestBody:    map[string]string{op.cell.key: op.write.value},
+		})
+		return err
+
+	case metaTransaction:
+		id, ok := new(big.Int).SetString(op.cell.id, 10)
+		if !ok {
+			return fmt.Errorf("invalid transaction id %q", op.cell.id)
+		}
+		if op.write.deleted {
+			_, err := cl.Ledger.V2.DeleteTransactionMetadata(ctx, operations.V2DeleteTransactionMetadataRequest{
+				Ledger: ledger, ID: id, Key: op.cell.key,
+				IdempotencyKey: pointer.For(op.idemKey),
+			})
+			return err
+		}
+		_, err := cl.Ledger.V2.AddMetadataOnTransaction(ctx, operations.V2AddMetadataOnTransactionRequest{
+			Ledger: ledger, ID: id,
+			IdempotencyKey: pointer.For(op.idemKey),
+			RequestBody:    map[string]string{op.cell.key: op.write.value},
+		})
+		return err
+	}
+
+	return nil
+}
+
+// committedTxIDs returns the model's committed transaction ids, sorted.
+func committedTxIDs(s State) []string {
+	ids := make([]string, 0, len(s.txs))
+	for id := range s.txs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	return ids
+}
+
+// metaKeyName draws from a small key pool so concurrent writes contend.
+func metaKeyName() string {
+	return fmt.Sprintf("mk:%d", random.GetRandom()%numMetaKeys)
+}
+
+// metaValue is a globally-unique value, so a read pinpoints the write it saw.
+func metaValue() string {
+	return fmt.Sprintf("mv-%016x", random.GetRandom())
+}
+
+func compareMetaCell(a, b metaCell) int {
+	if a.kind != b.kind {
+		return int(a.kind) - int(b.kind)
+	}
+	if a.id != b.id {
+		return strings.Compare(a.id, b.id)
+	}
+
+	return strings.Compare(a.key, b.key)
 }
 
 // toSDKPostings converts model postings to the SDK type.
