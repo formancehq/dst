@@ -97,7 +97,7 @@ func checkAccountBalances(ctx context.Context, client *client.Formance, ledger s
 func checkNeverAccounts(ctx context.Context, client *client.Formance, ledger string) {
 	txs, err := client.Ledger.V2.ListTransactions(ctx, operations.V2ListTransactionsRequest{
 		Ledger: ledger,
-		RequestBody: map[string]interface{}{
+		Query: map[string]any{
 			"$match": map[string]any{
 				"destination": "never:",
 			},

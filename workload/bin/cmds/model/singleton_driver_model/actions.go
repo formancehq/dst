@@ -53,7 +53,7 @@ func generateRevert(s State) (Operation, bool) {
 
 	sort.Strings(ids)
 
-	return Operation{kind: opRevert, targetID: random.RandomChoice(ids)}, true
+	return Operation{kind: opRevert, targetID: random.RandomChoice(ids), idemKey: idempotencyKey()}, true
 }
 
 // worldSourcedOp credits 1..maxPostings pool accounts from world. world is
@@ -142,17 +142,20 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 		if !ok {
 			return nil, fmt.Errorf("invalid revert target id %q", op.targetID)
 		}
-		// Force skips the balance check so the reversal never fails on funds.
+		// Force skips the balance check so the reversal never fails on funds. The
+		// idempotency key makes an ambiguous (committed-but-lost) revert replay to
+		// its committed result on retry instead of returning ALREADY_REVERT.
 		res, err := cl.Ledger.V2.RevertTransaction(ctx, operations.V2RevertTransactionRequest{
-			Ledger: ledger,
-			ID:     id,
-			Force:  pointer.For(true),
+			Ledger:         ledger,
+			ID:             id,
+			Force:          pointer.For(true),
+			IdempotencyKey: pointer.For(op.idemKey),
 		})
 		if err != nil {
 			return nil, err
 		}
 
-		return &res.V2CreateTransactionResponse.Data, nil
+		return &res.V2RevertTransactionResponse.Data, nil
 
 	default:
 		panic(fmt.Sprintf("sendOperation: unmodeled kind %d", op.kind))
