@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/big"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -53,22 +54,48 @@ type Checker struct {
 	metaStore *metaStore
 }
 
-// observation is one worker → processor message. observeTicket is the ticket
-// high-water when the response was received; the drain gate uses it to tell which
-// outstanding ops were dispatched after this one was observed.
+// observation is one worker → processor message. data holds one transaction per
+// committed leaf (one element for a single op, N for a bulk). observeTicket is
+// the ticket high-water when the response was received; the drain gate uses it to
+// tell which outstanding ops were dispatched after this one was observed.
 type observation struct {
 	ticket        uint64
 	op            Operation
-	data          *shared.V2Transaction
+	data          []*shared.V2Transaction
 	err           error
 	observeTicket uint64
 }
 
 // pendingObservation is a buffered success awaiting in-order replay. seq is the
-// committed transaction id.
+// committed operation's smallest transaction id (a bulk commits a contiguous id
+// range atomically, so its min id is its position in the commit order).
 type pendingObservation struct {
 	seq *big.Int
 	obs observation
+}
+
+// minTxID returns the smallest transaction id across an operation's per-element
+// responses.
+func minTxID(data []*shared.V2Transaction) *big.Int {
+	var min *big.Int
+	for _, t := range data {
+		id := t.GetID()
+		if min == nil || id.Cmp(min) < 0 {
+			min = id
+		}
+	}
+
+	return min
+}
+
+// txIDs renders the per-element transaction ids for debug.
+func txIDs(data []*shared.V2Transaction) string {
+	parts := make([]string, len(data))
+	for i, t := range data {
+		parts[i] = bigString(t.GetID())
+	}
+
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 // NewChecker returns an empty checker for one ledger; the caller spawns its

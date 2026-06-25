@@ -96,7 +96,7 @@ func (c *Checker) handleObservation(obs observation) {
 		return
 	}
 
-	c.insertPending(&pendingObservation{seq: obs.data.GetID(), obs: obs})
+	c.insertPending(&pendingObservation{seq: minTxID(obs.data), obs: obs})
 	c.tryDrain()
 }
 

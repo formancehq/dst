@@ -18,11 +18,18 @@ func dbg(format string, args ...any) {
 
 // renderOp formats an operation for debug lines and assertion details.
 func renderOp(op Operation) string {
-	if op.kind == opRevert {
+	switch op.kind {
+	case opRevert:
 		return "revert(" + op.targetID + ")"
+	case opBulk:
+		parts := make([]string, len(op.bulk))
+		for i, sub := range op.bulk {
+			parts[i] = renderOp(sub)
+		}
+		return "bulk[" + strings.Join(parts, ";") + "]"
+	default:
+		return renderPostings(op.postings)
 	}
-
-	return renderPostings(op.postings)
 }
 
 // renderPostings formats a posting list for debug lines and assertion details.

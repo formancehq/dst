@@ -134,50 +134,80 @@ func (s State) hash(h io.Writer) {
 	}
 }
 
-// Result is the predicted outcome of applying one operation.
+// OrderResult is the predicted outcome of one leaf operation. PCV holds the
+// touched cells' post-commit volumes for a committed transaction/revert.
+type OrderResult struct {
+	OK     bool
+	Reason string
+	PCV    map[VolumeKey]VolumePair
+}
+
+// Result is the predicted outcome of applying an operation (one leaf, or a bulk
+// of leaves applied atomically).
 //   - OK: the operation committed.
-//   - Reason: the rejection reason (a v2 error code) when !OK.
+//   - Reason: the rejection reason (a v2 error code) when !OK — the first failing
+//     leaf's reason.
 //   - State: the resulting state (equals the input state when !OK).
-//   - PCV: the touched cells' post-commit volumes for a committed transaction.
+//   - Orders: per-leaf outcomes, index-aligned with subOps, truncated at the
+//     first failing leaf.
 type Result struct {
 	OK     bool
 	Reason string
 	State  State
-	PCV    map[VolumeKey]VolumePair
+	Orders []OrderResult
 }
 
 // Apply folds op into s, predicting the server's outcome and the resulting state.
-//   - opCreateTx commits unless a non-world source would overdraft, in which case
-//     the whole transaction is rejected (INSUFFICIENT_FUND), state unchanged.
+// A bulk is atomic: the first failing leaf rejects the whole bulk and leaves the
+// state unchanged; otherwise every leaf commits. A single operation is a bulk of
+// one.
+func (s State) Apply(op Operation) Result {
+	next := s.clone()
+	subs := op.subOps()
+	orders := make([]OrderResult, 0, len(subs))
+
+	for _, sub := range subs {
+		oc := next.applyOne(sub)
+		orders = append(orders, oc)
+		if !oc.OK {
+			// Atomic: discard the working copy, nothing commits.
+			return Result{OK: false, Reason: oc.Reason, State: s, Orders: orders}
+		}
+	}
+
+	return Result{OK: true, State: next, Orders: orders}
+}
+
+// applyOne mutates the (already-forked) state for one leaf operation and returns
+// its predicted outcome.
+//   - opCreateTx commits unless a non-world source would overdraft
+//     (INSUFFICIENT_FUND).
 //   - opRevert reverses the target's postings. It is forced (the reversal skips
 //     the balance check, like the server), so it commits unless the target is
 //     unknown (NOT_FOUND) or already reverted (ALREADY_REVERT).
-func (s State) Apply(op Operation) Result {
-	next := s.clone()
-
+func (s *State) applyOne(op Operation) OrderResult {
 	switch op.kind {
 	case opCreateTx:
-		pcv, ok := next.applyPostings(op.postings, false)
+		pcv, ok := s.applyPostings(op.postings, false)
 		if !ok {
-			return Result{OK: false, Reason: reasonInsufficientFund, State: s}
+			return OrderResult{Reason: reasonInsufficientFund}
 		}
-		return Result{OK: true, State: next, PCV: pcv}
+		return OrderResult{OK: true, PCV: pcv}
 
 	case opRevert:
-		rec, ok := next.txs[op.targetID]
+		rec, ok := s.txs[op.targetID]
 		if !ok {
-			return Result{OK: false, Reason: reasonNotFound, State: s}
+			return OrderResult{Reason: reasonNotFound}
 		}
 		if rec.reverted {
-			return Result{OK: false, Reason: reasonAlreadyReverted, State: s}
+			return OrderResult{Reason: reasonAlreadyReverted}
 		}
 
-		// Forced: reverting skips the balance check, so the reversal never fails
-		// on funds (it may drive the original destination negative).
-		pcv, _ := next.applyPostings(reversePostings(rec.postings), true)
-		next.txs[op.targetID] = &txRecord{postings: rec.postings, reference: rec.reference, reverted: true}
+		pcv, _ := s.applyPostings(reversePostings(rec.postings), true)
+		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true}
+		s.txs[op.targetID] = next
 
-		return Result{OK: true, State: next, PCV: pcv}
+		return OrderResult{OK: true, PCV: pcv}
 
 	default:
 		panic(fmt.Sprintf("model: unmodeled operation kind %d", op.kind))

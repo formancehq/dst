@@ -12,6 +12,7 @@ import (
 	"github.com/formancehq/dst/workload/internal"
 	client "github.com/formancehq/formance-sdk-go/v3"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 	"github.com/formancehq/go-libs/v2/pointer"
 )
@@ -25,6 +26,10 @@ import (
 // The small address pool makes cells recur, so volumes accumulate, concurrent
 // reads land on contended cells, and account sources sometimes have funds.
 func generateOperation(s State) Operation {
+	if random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5}) == 0 {
+		return generateBulk()
+	}
+
 	if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
 		if op, ok := generateRevert(s); ok {
 			return op
@@ -36,6 +41,25 @@ func generateOperation(s State) Operation {
 	}
 
 	return worldSourcedOp()
+}
+
+// generateBulk plans an atomic bulk of 2-4 create transactions. Mostly
+// world-sourced (always commit), with ~1/4 of elements account-sourced so a bulk
+// occasionally overdrafts and must roll back atomically. Reverts are kept out of
+// bulks: the bulk handler reports a revert rejection as INTERNAL, which the model
+// could not match to ALREADY_REVERT.
+func generateBulk() Operation {
+	n := 2 + int(random.GetRandom()%3)
+	subs := make([]Operation, n)
+	for i := range subs {
+		if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
+			subs[i] = accountSourcedOp()
+		} else {
+			subs[i] = worldSourcedOp()
+		}
+	}
+
+	return Operation{kind: opBulk, bulk: subs}
 }
 
 // generateRevert targets a committed, not-yet-reverted transaction, chosen over a
@@ -121,8 +145,11 @@ func idempotencyKey() string {
 	return fmt.Sprintf("model-%016x%016x", random.GetRandom(), random.GetRandom())
 }
 
-// sendOperation dispatches op to the ledger and returns the server's response.
-func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op Operation) (*shared.V2Transaction, error) {
+// sendOperation dispatches op to the ledger and returns one transaction per
+// committed leaf (one for a single op, N for a bulk). A definitive business
+// failure (including a bulk's atomic rejection) is returned as an error for the
+// failure path; a transient error surfaces as-is.
+func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op Operation) ([]*shared.V2Transaction, error) {
 	switch op.kind {
 	case opCreateTx:
 		res, err := cl.Ledger.V2.CreateTransaction(ctx, operations.V2CreateTransactionRequest{
@@ -137,7 +164,7 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 			return nil, err
 		}
 
-		return &res.V2CreateTransactionResponse.Data, nil
+		return []*shared.V2Transaction{&res.V2CreateTransactionResponse.Data}, nil
 
 	case opRevert:
 		id, ok := new(big.Int).SetString(op.targetID, 10)
@@ -157,11 +184,69 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 			return nil, err
 		}
 
-		return &res.V2RevertTransactionResponse.Data, nil
+		return []*shared.V2Transaction{&res.V2RevertTransactionResponse.Data}, nil
+
+	case opBulk:
+		return sendBulk(ctx, cl, ledger, op)
 
 	default:
 		panic(fmt.Sprintf("sendOperation: unmodeled kind %d", op.kind))
 	}
+}
+
+// sendBulk dispatches an atomic bulk and normalizes the response: the per-element
+// transactions on success, or a synthesized error carrying the first failing
+// element's code (the bulk endpoint returns the body on both 200 and 400, so a
+// rejection is not a transport error).
+func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operation) ([]*shared.V2Transaction, error) {
+	elements := make([]shared.V2BulkElement, len(op.bulk))
+	for i, sub := range op.bulk {
+		elements[i] = shared.CreateV2BulkElementCreateTransaction(shared.V2BulkElementCreateTransaction{
+			Action: string(shared.V2BulkElementTypeCreateTransaction),
+			Ik:     pointer.For(sub.idemKey),
+			Data: &shared.V2PostTransaction{
+				Postings:  toSDKPostings(sub.postings),
+				Reference: pointer.For(sub.reference),
+			},
+		})
+	}
+
+	res, err := cl.Ledger.V2.CreateBulk(ctx, operations.V2CreateBulkRequest{
+		Ledger:      ledger,
+		Atomic:      pointer.For(true),
+		RequestBody: elements,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return parseBulkResponse(res.V2BulkResponse)
+}
+
+// parseBulkResponse extracts the per-element transactions from a bulk response,
+// or returns the first element error / top-level error as a business error.
+func parseBulkResponse(b *shared.V2BulkResponse) ([]*shared.V2Transaction, error) {
+	if b == nil {
+		return nil, fmt.Errorf("bulk: empty response")
+	}
+	if b.ErrorCode != nil {
+		return nil, &sdkerrors.V2ErrorResponse{ErrorCode: *b.ErrorCode}
+	}
+
+	data := make([]*shared.V2Transaction, 0, len(b.Data))
+	for _, r := range b.Data {
+		switch r.Type {
+		case shared.V2BulkElementResultTypeCreateTransaction:
+			tx := r.V2BulkElementResultCreateTransactionSchemas.Data
+			data = append(data, &tx)
+		case shared.V2BulkElementResultTypeError:
+			return nil, &sdkerrors.V2ErrorResponse{ErrorCode: shared.V2ErrorsEnum(r.V2BulkElementResultErrorSchemas.ErrorCode)}
+		default:
+			return nil, fmt.Errorf("bulk: unexpected result type %q", r.Type)
+		}
+	}
+
+	return data, nil
 }
 
 // --- Metadata --------------------------------------------------------------

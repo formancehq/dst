@@ -33,7 +33,7 @@ func TestApplyAccumulatesVolumes(t *testing.T) {
 	if got := vol(r2.State, "world", "USD").Output; got.Cmp(big.NewInt(150)) != 0 {
 		t.Fatalf("world output = %s, want 150", got.String())
 	}
-	if got := r2.PCV[VolumeKey{Address: "a", Asset: "USD"}].Input; got.Cmp(big.NewInt(150)) != 0 {
+	if got := r2.Orders[0].PCV[VolumeKey{Address: "a", Asset: "USD"}].Input; got.Cmp(big.NewInt(150)) != 0 {
 		t.Fatalf("pcv a input = %s, want 150", got.String())
 	}
 }
@@ -119,6 +119,27 @@ func TestCandidateBasesPrunesUnaffordable(t *testing.T) {
 }
 
 func revert(id string) Operation { return Operation{kind: opRevert, targetID: id} }
+
+func bulk(ops ...Operation) Operation { return Operation{kind: opBulk, bulk: ops} }
+
+// A bulk commits every element atomically, or — if any element fails — rejects
+// the whole bulk and leaves the state unchanged.
+func TestApplyBulkAtomic(t *testing.T) {
+	s := NewState().Apply(tx(p("world", "a", "USD", 100))).State
+
+	ok := s.Apply(bulk(tx(p("world", "b", "USD", 50)), tx(p("a", "c", "USD", 30))))
+	if !ok.OK || len(ok.Orders) != 2 {
+		t.Fatalf("bulk should commit both elements, got OK=%v orders=%d", ok.OK, len(ok.Orders))
+	}
+
+	bad := s.Apply(bulk(tx(p("world", "b", "USD", 50)), tx(p("a", "c", "USD", 9999))))
+	if bad.OK || bad.Reason != "INSUFFICIENT_FUND" {
+		t.Fatalf("overdrafting bulk should reject, got OK=%v reason=%q", bad.OK, bad.Reason)
+	}
+	if _, present := bad.State.volumes[VolumeKey{Address: "b", Asset: "USD"}]; present {
+		t.Fatal("rejected bulk mutated state (b credited despite rollback)")
+	}
+}
 
 // A revert reverses the target's postings (moving volumes back) and marks it
 // reverted; a second revert of the same transaction is rejected.

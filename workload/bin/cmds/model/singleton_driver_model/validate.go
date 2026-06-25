@@ -19,7 +19,7 @@ import (
 // exact predecessor and the prediction is deterministic: the model must predict
 // commit AND the identical post-commit volumes. modelState advances only on
 // agreement. Caller holds c.mu.
-func (c *Checker) validateCommit(op Operation, data *shared.V2Transaction) {
+func (c *Checker) validateCommit(op Operation, data []*shared.V2Transaction) {
 	res := c.modelState.Apply(op)
 
 	if !res.OK {
@@ -32,34 +32,51 @@ func (c *Checker) validateCommit(op Operation, data *shared.V2Transaction) {
 		return
 	}
 
-	server := data.GetPostCommitVolumes()
-	for key, vp := range res.PCV {
-		gotIn, gotOut, ok := pcvVolume(server, key)
-		if !ok || vp.Input.Cmp(gotIn) != 0 || vp.Output.Cmp(gotOut) != 0 {
-			assert.Unreachable("singleton_driver_model: post-commit volume mismatch", internal.Details{
-				"ledger":      c.ledger,
-				"cell":        renderCell(key),
-				"modelInput":  vp.Input.String(),
-				"modelOutput": vp.Output.String(),
-				"serverHad":   ok,
-			})
+	subs := op.subOps()
+	if len(subs) != len(data) || len(subs) != len(res.Orders) {
+		assert.Unreachable("singleton_driver_model: bulk element count mismatch", internal.Details{
+			"ledger": c.ledger,
+			"op":     renderOp(op),
+			"model":  len(res.Orders),
+			"server": len(data),
+			"subOps": len(subs),
+		})
 
-			return
+		return
+	}
+
+	for i, order := range res.Orders {
+		server := data[i].GetPostCommitVolumes()
+		for key, vp := range order.PCV {
+			gotIn, gotOut, ok := pcvVolume(server, key)
+			if !ok || vp.Input.Cmp(gotIn) != 0 || vp.Output.Cmp(gotOut) != 0 {
+				assert.Unreachable("singleton_driver_model: post-commit volume mismatch", internal.Details{
+					"ledger":      c.ledger,
+					"cell":        renderCell(key),
+					"modelInput":  vp.Input.String(),
+					"modelOutput": vp.Output.String(),
+					"serverHad":   ok,
+				})
+
+				return
+			}
 		}
 	}
 
-	// Record the resulting transaction so it can be a future revert target. A
+	// Record each resulting transaction so it can be a future revert target. A
 	// revert's new transaction carries the reversed postings and no reference.
-	switch op.kind {
-	case opCreateTx:
-		res.State.recordTx(data.GetID().String(), op.postings, op.reference)
-	case opRevert:
-		orig := c.modelState.txs[op.targetID]
-		res.State.recordTx(data.GetID().String(), reversePostings(orig.postings), "")
+	for i, sub := range subs {
+		switch sub.kind {
+		case opCreateTx:
+			res.State.recordTx(data[i].GetID().String(), sub.postings, sub.reference)
+		case opRevert:
+			orig := c.modelState.txs[sub.targetID]
+			res.State.recordTx(data[i].GetID().String(), reversePostings(orig.postings), "")
+		}
 	}
 
 	c.modelState = res.State
-	dbg("COMMIT OK: ledger=%s id=%s op=%s", c.ledger, bigString(data.GetID()), renderOp(op))
+	dbg("COMMIT OK: ledger=%s ids=%s op=%s", c.ledger, txIDs(data), renderOp(op))
 }
 
 // validateFailure accepts the observed failure iff some candidate base reproduces
