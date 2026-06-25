@@ -63,6 +63,61 @@ func TestCloneIndependence(t *testing.T) {
 	}
 }
 
+// A non-world source with no balance overdrafts: the transaction is rejected and
+// the state is left unchanged.
+func TestApplyRejectsOverdraft(t *testing.T) {
+	s := NewState()
+	r := s.Apply(tx(p("a", "b", "USD", 100)))
+	if r.OK {
+		t.Fatal("expected INSUFFICIENT_FUND rejection")
+	}
+	if r.Reason != "INSUFFICIENT_FUND" {
+		t.Fatalf("reason = %q, want INSUFFICIENT_FUND", r.Reason)
+	}
+	if len(r.State.volumes) != 0 {
+		t.Fatalf("rejected transaction mutated state: %d cells", len(r.State.volumes))
+	}
+}
+
+// A funded account can be debited; world itself may overdraft without bound.
+func TestApplyFundsChecks(t *testing.T) {
+	funded := NewState().Apply(tx(p("world", "a", "USD", 100))).State
+
+	if r := funded.Apply(tx(p("a", "b", "USD", 60))); !r.OK {
+		t.Fatal("funded debit should commit")
+	}
+	if r := funded.Apply(tx(p("a", "b", "USD", 140))); r.OK {
+		t.Fatal("debit beyond balance should be rejected")
+	}
+	if r := NewState().Apply(tx(p("world", "a", "USD", 1_000_000_000))); !r.OK {
+		t.Fatal("world must be overdraftable")
+	}
+}
+
+// candidateBases must not fold an operation that could not have committed at a
+// base: a debit only appears in serializations where a covering credit precedes
+// it, so b is never credited unless a already holds the funds.
+func TestCandidateBasesPrunesUnaffordable(t *testing.T) {
+	c := NewChecker("L")
+	c.modelState = c.modelState.Apply(tx(p("world", "a", "USD", 50))).State
+	c.inflight[1] = tx(p("a", "b", "USD", 100))
+	c.inflight[2] = tx(p("world", "a", "USD", 100))
+	c.ticketSeq.Store(2)
+
+	bad := false
+	c.candidateBases(2, func(s State) bool {
+		bIn := vol(s, "b", "USD").Input
+		aIn := vol(s, "a", "USD").Input
+		if bIn.Sign() > 0 && aIn.Cmp(big.NewInt(150)) < 0 {
+			bad = true
+		}
+		return false
+	})
+	if bad {
+		t.Fatal("candidateBases folded a debit that could not have committed")
+	}
+}
+
 // candidateBases enumerates every ordered subset of the in-flight operations, so
 // a concurrent read can match a state where neither, either, or both committed.
 func TestCandidateBasesEnumeratesInflight(t *testing.T) {

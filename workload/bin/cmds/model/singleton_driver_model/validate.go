@@ -56,9 +56,9 @@ func (c *Checker) validateCommit(op Operation, data *shared.V2Transaction) {
 // validateFailure accepts the observed failure iff some candidate base reproduces
 // the observed error reason when the operation is applied to it — i.e. there is a
 // serialization of the in-flight operations under which the server would reject
-// it exactly this way. With world-sourced transactions the model never rejects,
-// so any definitive failure is currently a finding; the search is retained for
-// the revert/metadata kinds to come. Caller holds c.mu.
+// it exactly this way. An account-sourced transaction overdrafts (or not)
+// depending on which concurrent credits committed first, so this is where the
+// candidate search earns its keep on the write path. Caller holds c.mu.
 func (c *Checker) validateFailure(maxTicket uint64, op Operation, reqErr error) {
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {

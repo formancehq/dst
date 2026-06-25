@@ -131,30 +131,34 @@ type Result struct {
 }
 
 // Apply folds op into s, predicting the server's outcome and the resulting state.
-// A world-sourced transaction always commits (world is overdraftable), so the
-// only operation kind so far is total; OK/Reason is retained for the revert and
-// metadata kinds to come.
+// A create transaction commits unless a non-world source would overdraft, in
+// which case the whole transaction is rejected (INSUFFICIENT_FUND) and the state
+// is left unchanged.
 func (s State) Apply(op Operation) Result {
-	next := s.clone()
-
 	switch op.kind {
 	case opCreateTx:
-		pcv := next.applyPostings(op.postings)
+		next := s.clone()
+		pcv, ok := next.applyPostings(op.postings)
+		if !ok {
+			return Result{OK: false, Reason: reasonInsufficientFund, State: s}
+		}
 		return Result{OK: true, State: next, PCV: pcv}
 	default:
 		panic(fmt.Sprintf("model: unmodeled operation kind %d", op.kind))
 	}
 }
 
-// applyPostings accumulates postings into volumes (source.output += amount,
-// destination.input += amount) read-modify-write per cell so postings touching
-// the same cell compose, returning the post-commit volumes of the touched cells.
-// Each cell is replaced with freshly-allocated big.Ints so forks sharing the map
-// never alias.
-func (s *State) applyPostings(postings []Posting) map[VolumeKey]VolumePair {
+// applyPostings applies postings in order: each credits its destination and
+// debits its source (read-modify-write per cell, so postings touching the same
+// cell compose), returning the touched cells' post-commit volumes. A non-world
+// source whose balance would go negative rejects the whole transaction
+// (ok=false); v2 applies a transaction atomically, so the caller discards the
+// working state. Each cell is replaced with freshly-allocated big.Ints so forks
+// sharing the map never alias.
+func (s *State) applyPostings(postings []Posting) (map[VolumeKey]VolumePair, bool) {
 	pcv := map[VolumeKey]VolumePair{}
 
-	bump := func(key VolumeKey, addIn, addOut *big.Int) {
+	bump := func(key VolumeKey, addIn, addOut *big.Int) VolumePair {
 		cur := s.vol(key)
 		np := VolumePair{
 			Input:  *new(big.Int).Add(&cur.Input, addIn),
@@ -162,15 +166,24 @@ func (s *State) applyPostings(postings []Posting) map[VolumeKey]VolumePair {
 		}
 		s.volumes[key] = np
 		pcv[key] = np
+		return np
 	}
 
 	zero := big.NewInt(0)
 	for _, p := range postings {
-		bump(VolumeKey{Address: p.Source, Asset: p.Asset}, zero, p.Amount)
 		bump(VolumeKey{Address: p.Destination, Asset: p.Asset}, p.Amount, zero)
+		src := bump(VolumeKey{Address: p.Source, Asset: p.Asset}, zero, p.Amount)
+
+		// world is the system source and may overdraft without bound.
+		if p.Source != "world" {
+			bal := new(big.Int).Sub(&src.Input, &src.Output)
+			if bal.Sign() < 0 {
+				return nil, false
+			}
+		}
 	}
 
-	return pcv
+	return pcv, true
 }
 
 // recordTx records a committed transaction by its server-assigned id. Called by

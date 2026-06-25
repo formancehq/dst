@@ -8,6 +8,10 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 )
 
+// reasonInsufficientFund is the model's rejection reason for an overdrafting
+// transaction, matched against the server's error code in validateFailure.
+const reasonInsufficientFund = string(shared.V2ErrorsEnumInsufficientFund)
+
 // errorResponse extracts a v2 API error from err, if it is one.
 func errorResponse(err error) (*sdkerrors.V2ErrorResponse, bool) {
 	var e *sdkerrors.V2ErrorResponse

@@ -12,12 +12,23 @@ import (
 	"github.com/formancehq/go-libs/v2/pointer"
 )
 
-// generateOperation plans the next operation. Only world-sourced create
-// transactions so far: every posting debits world (overdraftable), so the
-// operation always commits and the model needs no insufficient-funds modeling.
-// The small address pool makes cells recur, so volumes accumulate and concurrent
-// reads land on contended cells.
+// generateOperation plans the next operation: ~half world-sourced (always
+// commits, 1..maxPostings — funds the pool), ~half a single account-sourced
+// posting that overdrafts whenever the source lacks the balance, exercising the
+// INSUFFICIENT_FUND path. The small address pool makes cells recur, so volumes
+// accumulate, concurrent reads land on contended cells, and account sources
+// sometimes have funds and sometimes don't.
 func generateOperation() Operation {
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		return accountSourcedOp()
+	}
+
+	return worldSourcedOp()
+}
+
+// worldSourcedOp credits 1..maxPostings pool accounts from world. world is
+// overdraftable, so it always commits.
+func worldSourcedOp() Operation {
 	n := 1 + int(random.GetRandom()%uint64(maxPostings))
 	postings := make([]Posting, n)
 	for i := range postings {
@@ -29,6 +40,29 @@ func generateOperation() Operation {
 		}
 	}
 
+	return newOp(postings)
+}
+
+// accountSourcedOp moves a random amount between two distinct pool accounts. The
+// source overdrafts (INSUFFICIENT_FUND) unless it has accumulated enough from
+// prior world credits. Single-posting so the funds check is unambiguous (no
+// intra-transaction ordering of multiple sources).
+func accountSourcedOp() Operation {
+	src := poolAddress()
+	dst := poolAddress()
+	for dst == src {
+		dst = poolAddress()
+	}
+
+	return newOp([]Posting{{
+		Source:      src,
+		Destination: dst,
+		Asset:       random.RandomChoice(assets),
+		Amount:      internal.RandomBigInt(),
+	}})
+}
+
+func newOp(postings []Posting) Operation {
 	return Operation{
 		kind:      opCreateTx,
 		postings:  postings,
