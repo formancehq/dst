@@ -8,9 +8,13 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 )
 
-// reasonInsufficientFund is the model's rejection reason for an overdrafting
-// transaction, matched against the server's error code in validateFailure.
-const reasonInsufficientFund = string(shared.V2ErrorsEnumInsufficientFund)
+// Model rejection reasons, matched against the server's error code in
+// validateFailure. They are the v2 error codes the model can predict.
+const (
+	reasonInsufficientFund = string(shared.V2ErrorsEnumInsufficientFund)
+	reasonAlreadyReverted  = string(shared.V2ErrorsEnumAlreadyRevert)
+	reasonNotFound         = string(shared.V2ErrorsEnumNotFound)
+)
 
 // errorResponse extracts a v2 API error from err, if it is one.
 func errorResponse(err error) (*sdkerrors.V2ErrorResponse, bool) {
@@ -57,11 +61,21 @@ func isTransient(err error) bool {
 	return true
 }
 
-// hasReason reports whether err carries the v2 error code reason.
-func hasReason(err error, reason string) bool {
-	if e, ok := errorResponse(err); ok {
-		return string(e.ErrorCode) == reason
+// reasonMatches reports whether err's v2 error code is the one the model
+// predicted. A predicted ALREADY_REVERT also accepts REVERT_OCCURRING: both mean
+// the target is being or has been reverted in some serialization, and which one
+// the server returns depends only on whether the competing revert has committed
+// yet — a timing detail the committed-state model does not track.
+func reasonMatches(err error, reason string) bool {
+	e, ok := errorResponse(err)
+	if !ok {
+		return false
 	}
 
-	return false
+	code := string(e.ErrorCode)
+	if reason == reasonAlreadyReverted {
+		return code == reasonAlreadyReverted || code == string(shared.V2ErrorsEnumRevertOccurring)
+	}
+
+	return code == reason
 }

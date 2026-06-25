@@ -16,6 +16,15 @@ func dbg(format string, args ...any) {
 	}
 }
 
+// renderOp formats an operation for debug lines and assertion details.
+func renderOp(op Operation) string {
+	if op.kind == opRevert {
+		return "revert(" + op.targetID + ")"
+	}
+
+	return renderPostings(op.postings)
+}
+
 // renderPostings formats a posting list for debug lines and assertion details.
 func renderPostings(ps []Posting) string {
 	parts := make([]string, len(ps))

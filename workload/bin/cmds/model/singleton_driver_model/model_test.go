@@ -118,6 +118,73 @@ func TestCandidateBasesPrunesUnaffordable(t *testing.T) {
 	}
 }
 
+func revert(id string) Operation { return Operation{kind: opRevert, targetID: id} }
+
+// A revert reverses the target's postings (moving volumes back) and marks it
+// reverted; a second revert of the same transaction is rejected.
+func TestApplyRevert(t *testing.T) {
+	s := NewState()
+	s = s.Apply(tx(p("world", "a", "USD", 100))).State
+	s.recordTx("7", []Posting{p("world", "a", "USD", 100)}, "")
+
+	r := s.Apply(revert("7"))
+	if !r.OK {
+		t.Fatal("revert should commit")
+	}
+	// Reversal a->world:100 leaves a at input 100 / output 100 (balance 0).
+	if got := vol(r.State, "a", "USD"); got.Output.Cmp(big.NewInt(100)) != 0 {
+		t.Fatalf("a output = %s, want 100", got.Output.String())
+	}
+
+	if r2 := r.State.Apply(revert("7")); r2.OK || r2.Reason != "ALREADY_REVERT" {
+		t.Fatalf("double revert: OK=%v reason=%q, want !OK ALREADY_REVERT", r2.OK, r2.Reason)
+	}
+}
+
+// A revert is forced, so it commits even when the reversal drives the original
+// destination negative (the funds check is skipped).
+func TestApplyRevertSkipsFundsCheck(t *testing.T) {
+	s := NewState()
+	s = s.Apply(tx(p("world", "a", "USD", 100))).State
+	s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "")
+	// Drain a so it can't cover the reversal.
+	s = s.Apply(tx(p("a", "b", "USD", 100))).State
+
+	if r := s.Apply(revert("1")); !r.OK {
+		t.Fatalf("forced revert should commit despite insufficient funds, got reason %q", r.Reason)
+	}
+}
+
+func TestApplyRevertNotFound(t *testing.T) {
+	if r := NewState().Apply(revert("999")); r.OK || r.Reason != "NOT_FOUND" {
+		t.Fatalf("revert of unknown id: OK=%v reason=%q, want !OK NOT_FOUND", r.OK, r.Reason)
+	}
+}
+
+// Reverted status is part of the state identity, so a base where the target is
+// reverted is enumerated distinctly from one where it is not — letting a
+// concurrent ALREADY_REVERT be explained.
+func TestCandidateBasesDistinguishesReverted(t *testing.T) {
+	c := NewChecker("L")
+	c.modelState = c.modelState.Apply(tx(p("world", "a", "USD", 100))).State
+	c.modelState.recordTx("5", []Posting{p("world", "a", "USD", 100)}, "")
+	c.inflight[1] = revert("5")
+	c.ticketSeq.Store(1)
+
+	var sawReverted, sawLive bool
+	c.candidateBases(1, func(s State) bool {
+		if s.txs["5"].reverted {
+			sawReverted = true
+		} else {
+			sawLive = true
+		}
+		return false
+	})
+	if !sawReverted || !sawLive {
+		t.Fatalf("missing bases: reverted=%v live=%v", sawReverted, sawLive)
+	}
+}
+
 // candidateBases enumerates every ordered subset of the in-flight operations, so
 // a concurrent read can match a state where neither, either, or both committed.
 func TestCandidateBasesEnumeratesInflight(t *testing.T) {

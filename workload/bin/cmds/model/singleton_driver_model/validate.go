@@ -24,9 +24,9 @@ func (c *Checker) validateCommit(op Operation, data *shared.V2Transaction) {
 
 	if !res.OK {
 		assert.Unreachable("singleton_driver_model: model rejects a server-committed transaction", internal.Details{
-			"ledger":   c.ledger,
-			"reason":   res.Reason,
-			"postings": renderPostings(op.postings),
+			"ledger": c.ledger,
+			"reason": res.Reason,
+			"op":     renderOp(op),
 		})
 
 		return
@@ -48,9 +48,18 @@ func (c *Checker) validateCommit(op Operation, data *shared.V2Transaction) {
 		}
 	}
 
-	res.State.recordTx(data.GetID().String(), op)
+	// Record the resulting transaction so it can be a future revert target. A
+	// revert's new transaction carries the reversed postings and no reference.
+	switch op.kind {
+	case opCreateTx:
+		res.State.recordTx(data.GetID().String(), op.postings, op.reference)
+	case opRevert:
+		orig := c.modelState.txs[op.targetID]
+		res.State.recordTx(data.GetID().String(), reversePostings(orig.postings), "")
+	}
+
 	c.modelState = res.State
-	dbg("COMMIT OK: ledger=%s id=%s postings=%s", c.ledger, bigString(data.GetID()), renderPostings(op.postings))
+	dbg("COMMIT OK: ledger=%s id=%s op=%s", c.ledger, bigString(data.GetID()), renderOp(op))
 }
 
 // validateFailure accepts the observed failure iff some candidate base reproduces
@@ -63,7 +72,7 @@ func (c *Checker) validateFailure(maxTicket uint64, op Operation, reqErr error) 
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {
 		res := base.Apply(op)
-		if !res.OK && hasReason(reqErr, res.Reason) {
+		if !res.OK && reasonMatches(reqErr, res.Reason) {
 			matched = true
 			return true
 		}
@@ -76,9 +85,9 @@ func (c *Checker) validateFailure(maxTicket uint64, op Operation, reqErr error) 
 	}
 
 	assert.Unreachable("singleton_driver_model: operation failure not explained by any serialization", internal.Details{
-		"ledger":   c.ledger,
-		"error":    reqErr.Error(),
-		"postings": renderPostings(op.postings),
+		"ledger": c.ledger,
+		"error":  reqErr.Error(),
+		"op":     renderOp(op),
 	})
 }
 

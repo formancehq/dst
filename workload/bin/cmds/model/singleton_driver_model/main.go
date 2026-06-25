@@ -98,9 +98,10 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 			continue
 		}
 
-		op := generateOperation()
-
+		// Generate under the lock: a revert reads the committed state to pick a
+		// target, and the ticket must be reserved in dispatch order.
 		c.mu.Lock()
+		op := generateOperation(c.modelState)
 		ticket := c.registerInflight(op)
 		c.mu.Unlock()
 

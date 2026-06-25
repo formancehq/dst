@@ -58,10 +58,13 @@ type VolumePair struct {
 }
 
 // txRecord is a committed transaction tracked by its server-assigned id: its
-// postings and reference. Recorded on commit (validate.go), not by Apply.
+// postings, reference, and whether it has been reverted. Recorded on commit
+// (validate.go). Records are replaced, never mutated in place, so clones can
+// share the pointer.
 type txRecord struct {
 	postings  []Posting
 	reference string
+	reverted  bool
 }
 
 // State is one ledger's model: the per-cell volume table and the committed
@@ -116,6 +119,19 @@ func (s State) hash(h io.Writer) {
 		v := s.volumes[k]
 		fmt.Fprintf(h, "V|%s|%s|%s|%s\n", k.Address, k.Asset, v.Input.String(), v.Output.String())
 	}
+
+	// Reverted status distinguishes states a revert prediction depends on (two
+	// orderings can reach the same volumes but disagree on what is reverted).
+	reverted := make([]string, 0, len(s.txs))
+	for id, r := range s.txs {
+		if r.reverted {
+			reverted = append(reverted, id)
+		}
+	}
+	sort.Strings(reverted)
+	for _, id := range reverted {
+		fmt.Fprintf(h, "R|%s\n", id)
+	}
 }
 
 // Result is the predicted outcome of applying one operation.
@@ -131,18 +147,38 @@ type Result struct {
 }
 
 // Apply folds op into s, predicting the server's outcome and the resulting state.
-// A create transaction commits unless a non-world source would overdraft, in
-// which case the whole transaction is rejected (INSUFFICIENT_FUND) and the state
-// is left unchanged.
+//   - opCreateTx commits unless a non-world source would overdraft, in which case
+//     the whole transaction is rejected (INSUFFICIENT_FUND), state unchanged.
+//   - opRevert reverses the target's postings. It is forced (the reversal skips
+//     the balance check, like the server), so it commits unless the target is
+//     unknown (NOT_FOUND) or already reverted (ALREADY_REVERT).
 func (s State) Apply(op Operation) Result {
+	next := s.clone()
+
 	switch op.kind {
 	case opCreateTx:
-		next := s.clone()
-		pcv, ok := next.applyPostings(op.postings)
+		pcv, ok := next.applyPostings(op.postings, false)
 		if !ok {
 			return Result{OK: false, Reason: reasonInsufficientFund, State: s}
 		}
 		return Result{OK: true, State: next, PCV: pcv}
+
+	case opRevert:
+		rec, ok := next.txs[op.targetID]
+		if !ok {
+			return Result{OK: false, Reason: reasonNotFound, State: s}
+		}
+		if rec.reverted {
+			return Result{OK: false, Reason: reasonAlreadyReverted, State: s}
+		}
+
+		// Forced: reverting skips the balance check, so the reversal never fails
+		// on funds (it may drive the original destination negative).
+		pcv, _ := next.applyPostings(reversePostings(rec.postings), true)
+		next.txs[op.targetID] = &txRecord{postings: rec.postings, reference: rec.reference, reverted: true}
+
+		return Result{OK: true, State: next, PCV: pcv}
+
 	default:
 		panic(fmt.Sprintf("model: unmodeled operation kind %d", op.kind))
 	}
@@ -150,12 +186,12 @@ func (s State) Apply(op Operation) Result {
 
 // applyPostings applies postings in order: each credits its destination and
 // debits its source (read-modify-write per cell, so postings touching the same
-// cell compose), returning the touched cells' post-commit volumes. A non-world
-// source whose balance would go negative rejects the whole transaction
-// (ok=false); v2 applies a transaction atomically, so the caller discards the
-// working state. Each cell is replaced with freshly-allocated big.Ints so forks
-// sharing the map never alias.
-func (s *State) applyPostings(postings []Posting) (map[VolumeKey]VolumePair, bool) {
+// cell compose), returning the touched cells' post-commit volumes. Unless force
+// is set, a non-world source whose balance would go negative rejects the whole
+// transaction (ok=false); v2 applies a transaction atomically, so the caller
+// discards the working state. Each cell is replaced with freshly-allocated
+// big.Ints so forks sharing the map never alias.
+func (s *State) applyPostings(postings []Posting, force bool) (map[VolumeKey]VolumePair, bool) {
 	pcv := map[VolumeKey]VolumePair{}
 
 	bump := func(key VolumeKey, addIn, addOut *big.Int) VolumePair {
@@ -175,7 +211,7 @@ func (s *State) applyPostings(postings []Posting) (map[VolumeKey]VolumePair, boo
 		src := bump(VolumeKey{Address: p.Source, Asset: p.Asset}, zero, p.Amount)
 
 		// world is the system source and may overdraft without bound.
-		if p.Source != "world" {
+		if !force && p.Source != "world" {
 			bal := new(big.Int).Sub(&src.Input, &src.Output)
 			if bal.Sign() < 0 {
 				return nil, false
@@ -186,8 +222,18 @@ func (s *State) applyPostings(postings []Posting) (map[VolumeKey]VolumePair, boo
 	return pcv, true
 }
 
+// reversePostings swaps source and destination of each posting, preserving order.
+func reversePostings(ps []Posting) []Posting {
+	out := make([]Posting, len(ps))
+	for i, p := range ps {
+		out[i] = Posting{Source: p.Destination, Destination: p.Source, Asset: p.Asset, Amount: p.Amount}
+	}
+
+	return out
+}
+
 // recordTx records a committed transaction by its server-assigned id. Called by
 // the commit cross-check, which learns the id from the response.
-func (s *State) recordTx(id string, op Operation) {
-	s.txs[id] = &txRecord{postings: op.postings, reference: op.reference}
+func (s *State) recordTx(id string, postings []Posting, reference string) {
+	s.txs[id] = &txRecord{postings: postings, reference: reference}
 }

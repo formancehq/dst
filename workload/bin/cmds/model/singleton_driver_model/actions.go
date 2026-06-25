@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"sort"
 
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	"github.com/formancehq/dst/workload/internal"
@@ -12,18 +14,46 @@ import (
 	"github.com/formancehq/go-libs/v2/pointer"
 )
 
-// generateOperation plans the next operation: ~half world-sourced (always
-// commits, 1..maxPostings — funds the pool), ~half a single account-sourced
-// posting that overdrafts whenever the source lacks the balance, exercising the
-// INSUFFICIENT_FUND path. The small address pool makes cells recur, so volumes
-// accumulate, concurrent reads land on contended cells, and account sources
-// sometimes have funds and sometimes don't.
-func generateOperation() Operation {
+// generateOperation plans the next operation against the committed state s:
+//   - ~1/4: revert a committed, not-yet-reverted transaction (when one exists),
+//   - else ~half world-sourced (always commits, 1..maxPostings — funds the pool),
+//   - else a single account-sourced posting that overdrafts whenever the source
+//     lacks the balance, exercising INSUFFICIENT_FUND.
+//
+// The small address pool makes cells recur, so volumes accumulate, concurrent
+// reads land on contended cells, and account sources sometimes have funds.
+func generateOperation(s State) Operation {
+	if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
+		if op, ok := generateRevert(s); ok {
+			return op
+		}
+	}
+
 	if random.RandomChoice([]uint8{0, 1}) == 0 {
 		return accountSourcedOp()
 	}
 
 	return worldSourcedOp()
+}
+
+// generateRevert targets a committed, not-yet-reverted transaction, chosen over a
+// sorted slice (replayable, unlike map order). Concurrent picks of the same
+// target exercise the ALREADY_REVERT / REVERT_OCCURRING rejection.
+func generateRevert(s State) (Operation, bool) {
+	ids := make([]string, 0, len(s.txs))
+	for id, r := range s.txs {
+		if !r.reverted {
+			ids = append(ids, id)
+		}
+	}
+
+	if len(ids) == 0 {
+		return Operation{}, false
+	}
+
+	sort.Strings(ids)
+
+	return Operation{kind: opRevert, targetID: random.RandomChoice(ids)}, true
 }
 
 // worldSourcedOp credits 1..maxPostings pool accounts from world. world is
@@ -106,6 +136,24 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 		}
 
 		return &res.V2CreateTransactionResponse.Data, nil
+
+	case opRevert:
+		id, ok := new(big.Int).SetString(op.targetID, 10)
+		if !ok {
+			return nil, fmt.Errorf("invalid revert target id %q", op.targetID)
+		}
+		// Force skips the balance check so the reversal never fails on funds.
+		res, err := cl.Ledger.V2.RevertTransaction(ctx, operations.V2RevertTransactionRequest{
+			Ledger: ledger,
+			ID:     id,
+			Force:  pointer.For(true),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return &res.V2CreateTransactionResponse.Data, nil
+
 	default:
 		panic(fmt.Sprintf("sendOperation: unmodeled kind %d", op.kind))
 	}

@@ -84,14 +84,14 @@ func (c *Checker) handleObservation(obs observation) {
 	// didn't happen (an ambiguous commit replays via the idempotency key, so a
 	// transient that survives the client's retries truly didn't commit).
 	if obs.err != nil && isTransient(obs.err) {
-		dbg("TRANSIENT SKIP: ledger=%s postings=%s err=%v", c.ledger, renderPostings(obs.op.postings), obs.err)
+		dbg("TRANSIENT SKIP: ledger=%s op=%s err=%v", c.ledger, renderOp(obs.op), obs.err)
 		return
 	}
 
 	if obs.err != nil {
 		// A definitive failure consumes no transaction id. Accept it iff some
 		// serialization of the in-flight operations reproduces the observed error.
-		dbg("OP ERR: ledger=%s postings=%s err=%v", c.ledger, renderPostings(obs.op.postings), obs.err)
+		dbg("OP ERR: ledger=%s op=%s err=%v", c.ledger, renderOp(obs.op), obs.err)
 		c.validateFailure(obs.observeTicket, obs.op, obs.err)
 		return
 	}
