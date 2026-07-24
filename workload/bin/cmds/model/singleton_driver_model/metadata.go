@@ -20,10 +20,12 @@ type metaKind uint8
 const (
 	metaAccount metaKind = iota
 	metaTransaction
+	metaLedger
 )
 
 // metaCell is one (target, key) register: an account address or transaction id,
-// plus the metadata key.
+// plus the metadata key. Ledger-level metadata uses an empty id (one ledger per
+// checker).
 type metaCell struct {
 	kind metaKind
 	id   string

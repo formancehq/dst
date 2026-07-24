@@ -273,16 +273,26 @@ func generateMetaWrite(c *Checker) metaOp {
 		}
 	}
 
-	var cell metaCell
-	if ids := committedTxIDs(c.modelState); len(ids) > 0 && random.RandomChoice([]uint8{0, 1}) == 0 {
-		cell = metaCell{kind: metaTransaction, id: random.RandomChoice(ids), key: metaKeyName()}
-	} else {
-		cell = metaCell{kind: metaAccount, id: poolAddress(), key: metaKeyName()}
-	}
-
+	cell := pickMetaSetCell(c)
 	w := &metaWrite{value: metaValue(), dispatch: c.ticketSeq.Add(1)}
 	c.metaStore.register(cell, w)
 	return metaOp{cell: cell, write: w, idemKey: idempotencyKey()}
+}
+
+// pickMetaSetCell chooses the target of a metadata set: ~1/4 the ledger itself,
+// ~1/4 a committed transaction (falling back to an account when none exists yet),
+// else a pool account.
+func pickMetaSetCell(c *Checker) metaCell {
+	switch random.RandomChoice([]uint8{0, 1, 2, 3}) {
+	case 0:
+		return metaCell{kind: metaLedger, key: metaKeyName()}
+	case 1:
+		if ids := committedTxIDs(c.modelState); len(ids) > 0 {
+			return metaCell{kind: metaTransaction, id: random.RandomChoice(ids), key: metaKeyName()}
+		}
+	}
+
+	return metaCell{kind: metaAccount, id: poolAddress(), key: metaKeyName()}
 }
 
 // sendMetaOp dispatches a metadata set or delete to the ledger.
@@ -319,6 +329,21 @@ func sendMetaOp(ctx context.Context, cl *client.Formance, ledger string, op meta
 			Ledger: ledger, ID: id,
 			IdempotencyKey: pointer.For(op.idemKey),
 			RequestBody:    map[string]string{op.cell.key: op.write.value},
+		})
+		return err
+
+	case metaLedger:
+		// Ledger metadata endpoints carry no idempotency key; set and delete are
+		// naturally idempotent, so a replayed retry re-applies the same effect.
+		if op.write.deleted {
+			_, err := cl.Ledger.V2.DeleteLedgerMetadata(ctx, operations.V2DeleteLedgerMetadataRequest{
+				Ledger: ledger, Key: op.cell.key,
+			})
+			return err
+		}
+		_, err := cl.Ledger.V2.UpdateLedgerMetadata(ctx, operations.V2UpdateLedgerMetadataRequest{
+			Ledger:      ledger,
+			RequestBody: map[string]string{op.cell.key: op.write.value},
 		})
 		return err
 	}

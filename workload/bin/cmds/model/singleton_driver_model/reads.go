@@ -108,6 +108,12 @@ func runMetaRead(ctx context.Context, cl *client.Formance, c *Checker) {
 		if err == nil {
 			server = res.V2GetTransactionResponse.Data.Metadata
 		}
+	case metaLedger:
+		var res *operations.V2GetLedgerResponse
+		res, err = cl.Ledger.V2.GetLedger(ctx, operations.V2GetLedgerRequest{Ledger: c.ledger})
+		if err == nil {
+			server = res.V2GetLedgerResponse.Data.Metadata
+		}
 	}
 	// High-water at the read's response: writes dispatched after this can't be in
 	// what the server returned.
