@@ -123,14 +123,19 @@ func runMetaRead(ctx context.Context, cl *client.Formance, c *Checker) {
 		if isTransient(err) {
 			return
 		}
-		// The target (account address / committed transaction) exists, so a
-		// definitive read error is a finding.
-		assert.Unreachable("singleton_driver_model: metadata read returned unexpected error", internal.Details{
-			"ledger": c.ledger,
-			"target": target.id,
-			"error":  err.Error(),
-		})
-		return
+		// An account with no committed volumes or metadata reads as NOT_FOUND: its
+		// metadata is legitimately absent (e.g. its only writes are still in-flight),
+		// so validate the empty map rather than flag a fault. Transactions and the
+		// ledger always exist once targetable, so NOT_FOUND there is a finding.
+		if !(isNotFound(err) && target.kind == metaAccount) {
+			assert.Unreachable("singleton_driver_model: metadata read returned unexpected error", internal.Details{
+				"ledger": c.ledger,
+				"target": target.id,
+				"error":  err.Error(),
+			})
+			return
+		}
+		server = nil
 	}
 
 	c.mu.Lock()
