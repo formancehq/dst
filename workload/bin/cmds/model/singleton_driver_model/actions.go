@@ -27,7 +27,7 @@ import (
 // reads land on contended cells, and account sources sometimes have funds.
 func generateOperation(s State) Operation {
 	if random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5}) == 0 {
-		return generateBulk()
+		return generateBulk(s)
 	}
 
 	if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
@@ -43,19 +43,25 @@ func generateOperation(s State) Operation {
 	return worldSourcedOp()
 }
 
-// generateBulk plans an atomic bulk of 2-4 create transactions. Mostly
-// world-sourced (always commit), with ~1/4 of elements account-sourced so a bulk
-// occasionally overdrafts and must roll back atomically. Reverts are kept out of
-// bulks: the bulk handler reports a revert rejection as INTERNAL, which the model
-// could not match to ALREADY_REVERT.
-func generateBulk() Operation {
+// generateBulk plans an atomic bulk of 2-4 elements: mostly create transactions
+// (world-sourced ones always commit; ~1/4 account-sourced so a bulk occasionally
+// overdrafts and rolls back atomically), plus ~1/4 reverts of committed
+// transactions. A revert of an already-reverted target — a concurrent or
+// duplicate-within-bulk pick — rejects the whole atomic bulk with ALREADY_REVERT.
+func generateBulk(s State) Operation {
 	n := 2 + int(random.GetRandom()%3)
-	subs := make([]Operation, n)
-	for i := range subs {
+	subs := make([]Operation, 0, n)
+	for i := 0; i < n; i++ {
 		if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
-			subs[i] = accountSourcedOp()
+			if op, ok := generateRevert(s); ok {
+				subs = append(subs, op)
+				continue
+			}
+		}
+		if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
+			subs = append(subs, accountSourcedOp())
 		} else {
-			subs[i] = worldSourcedOp()
+			subs = append(subs, worldSourcedOp())
 		}
 	}
 
@@ -201,14 +207,32 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operation) ([]*shared.V2Transaction, error) {
 	elements := make([]shared.V2BulkElement, len(op.bulk))
 	for i, sub := range op.bulk {
-		elements[i] = shared.CreateV2BulkElementCreateTransaction(shared.V2BulkElementCreateTransaction{
-			Action: string(shared.V2BulkElementTypeCreateTransaction),
-			Ik:     pointer.For(sub.idemKey),
-			Data: &shared.V2PostTransaction{
-				Postings:  toSDKPostings(sub.postings),
-				Reference: pointer.For(sub.reference),
-			},
-		})
+		switch sub.kind {
+		case opRevert:
+			id, ok := new(big.Int).SetString(sub.targetID, 10)
+			if !ok {
+				return nil, fmt.Errorf("invalid revert target id %q", sub.targetID)
+			}
+			// Forced, matching the standalone revert path, so a bulk reversal never
+			// fails on funds — only an already-reverted target rejects it.
+			elements[i] = shared.CreateV2BulkElementRevertTransaction(shared.V2BulkElementRevertTransaction{
+				Action: string(shared.V2BulkElementTypeRevertTransaction),
+				Ik:     pointer.For(sub.idemKey),
+				Data: &shared.V2BulkElementRevertTransactionData{
+					ID:    id,
+					Force: pointer.For(true),
+				},
+			})
+		default:
+			elements[i] = shared.CreateV2BulkElementCreateTransaction(shared.V2BulkElementCreateTransaction{
+				Action: string(shared.V2BulkElementTypeCreateTransaction),
+				Ik:     pointer.For(sub.idemKey),
+				Data: &shared.V2PostTransaction{
+					Postings:  toSDKPostings(sub.postings),
+					Reference: pointer.For(sub.reference),
+				},
+			})
+		}
 	}
 
 	res, err := cl.Ledger.V2.CreateBulk(ctx, operations.V2CreateBulkRequest{
@@ -238,6 +262,9 @@ func parseBulkResponse(b *shared.V2BulkResponse) ([]*shared.V2Transaction, error
 		switch r.Type {
 		case shared.V2BulkElementResultTypeCreateTransaction:
 			tx := r.V2BulkElementResultCreateTransactionSchemas.Data
+			data = append(data, &tx)
+		case shared.V2BulkElementResultTypeRevertTransaction:
+			tx := r.V2BulkElementResultRevertTransactionSchemas.Data
 			data = append(data, &tx)
 		case shared.V2BulkElementResultTypeError:
 			return nil, &sdkerrors.V2ErrorResponse{ErrorCode: shared.V2ErrorsEnum(r.V2BulkElementResultErrorSchemas.ErrorCode)}
