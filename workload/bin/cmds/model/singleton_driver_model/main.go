@@ -117,18 +117,27 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 		c.mu.Lock()
 		op := generateOperation(c.modelState)
 		ticket := c.registerInflight(op)
+		metaRefs := c.registerCreateAccountMeta(op, ticket)
 		c.mu.Unlock()
 
 		data, err := sendOperation(ctx, cl, c.ledger, op)
 
 		// Snapshot the ticket high-water at observe (atomic, lock-free); the drain
 		// gate compares outstanding tickets against it.
+		observeTicket := c.ticketSeq.Load()
+
+		// Settle any metadata the create carried against its outcome, on the
+		// register track (independent of the volume re-order buffer below).
+		c.mu.Lock()
+		c.settleCreateMeta(op, metaRefs, data, err == nil, ticket, observeTicket)
+		c.mu.Unlock()
+
 		obs := observation{
 			ticket:        ticket,
 			op:            op,
 			data:          data,
 			err:           err,
-			observeTicket: c.ticketSeq.Load(),
+			observeTicket: observeTicket,
 		}
 
 		select {

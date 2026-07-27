@@ -26,6 +26,12 @@ type Operation struct {
 	force     bool
 	idemKey   string
 	bulk      []Operation
+
+	// Metadata carried on a create transaction, applied atomically with it:
+	// metadata is set on the new transaction; accountMeta[address] is set on that
+	// account. Both are validated on the metadata register track (metadata.go).
+	metadata    map[string]string
+	accountMeta map[string]map[string]string
 }
 
 // subOps returns the leaf operations Apply folds: a bulk's elements, or the

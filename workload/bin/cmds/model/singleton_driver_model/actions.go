@@ -36,11 +36,43 @@ func generateOperation(s State) Operation {
 		}
 	}
 
+	var op Operation
 	if random.RandomChoice([]uint8{0, 1}) == 0 {
-		return accountSourcedOp()
+		op = accountSourcedOp()
+	} else {
+		op = worldSourcedOp()
 	}
 
-	return worldSourcedOp()
+	return withCreateMeta(op)
+}
+
+// withCreateMeta attaches create-time metadata to a standalone create: ~half carry
+// transaction metadata, ~1/3 carry account metadata on the last posting's
+// destination (already a legal account when the transaction commits). Kept out of
+// newOp so bulk elements — whose payloads carry no metadata — don't generate any.
+func withCreateMeta(op Operation) Operation {
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		op.metadata = randomMetaMap()
+	}
+	if random.RandomChoice([]uint8{0, 1, 2}) == 0 && len(op.postings) > 0 {
+		dst := op.postings[len(op.postings)-1].Destination
+		op.accountMeta = map[string]map[string]string{dst: randomMetaMap()}
+	}
+
+	return op
+}
+
+// randomMetaMap builds a 1-2 key metadata map from the small key/value pools —
+// keys collide across writers, values are globally unique so a read pinpoints the
+// write it observed.
+func randomMetaMap() map[string]string {
+	n := 1 + int(random.GetRandom()%2)
+	m := make(map[string]string, n)
+	for i := 0; i < n; i++ {
+		m[metaKeyName()] = metaValue()
+	}
+
+	return m
 }
 
 // generateBulk plans an atomic bulk of 2-4 elements: mostly create transactions
@@ -170,8 +202,10 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 			Ledger:         ledger,
 			IdempotencyKey: pointer.For(op.idemKey),
 			V2PostTransaction: shared.V2PostTransaction{
-				Postings:  toSDKPostings(op.postings),
-				Reference: pointer.For(op.reference),
+				Postings:        toSDKPostings(op.postings),
+				Reference:       pointer.For(op.reference),
+				Metadata:        op.metadata,
+				AccountMetadata: op.accountMeta,
 			},
 		})
 		if err != nil {

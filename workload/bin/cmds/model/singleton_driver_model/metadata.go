@@ -1,6 +1,10 @@
 package main
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
+)
 
 // reservedMetaPrefix namespaces server-managed metadata (e.g. the
 // com.formance.spec/state/reverts key stamped on a reverted transaction). The
@@ -162,6 +166,59 @@ func (m *metaStore) validValues(c metaCell, dR, oR uint64) metaValues {
 	}
 
 	return v
+}
+
+// createMetaWrite pairs a registered create-time metadata write with its cell so
+// it can be committed or dropped once the create's outcome is known.
+type createMetaWrite struct {
+	cell  metaCell
+	write *metaWrite
+}
+
+// registerCreateAccountMeta registers, at dispatch, the account-metadata writes a
+// create transaction carries, so a concurrent read sees them as in-flight
+// candidates before the create's outcome is known. settleCreateMeta commits or
+// drops them. Transaction-level metadata is not registered here: its target id is
+// assigned only on commit and no read can reach it before then. Caller holds c.mu.
+func (c *Checker) registerCreateAccountMeta(op Operation, dispatch uint64) []createMetaWrite {
+	var refs []createMetaWrite
+	for addr, kv := range op.accountMeta {
+		for key, val := range kv {
+			cell := metaCell{kind: metaAccount, id: addr, key: key}
+			w := &metaWrite{value: val, dispatch: dispatch}
+			c.metaStore.register(cell, w)
+			refs = append(refs, createMetaWrite{cell: cell, write: w})
+		}
+	}
+
+	return refs
+}
+
+// settleCreateMeta finalizes a create's carried metadata against its outcome. On
+// commit it marks the account-metadata writes committed and registers the
+// transaction-level metadata — keyed by the id assigned on commit — as already
+// committed; otherwise (transient or a business failure, in which case the atomic
+// transaction and its metadata did not apply) it drops the account-metadata
+// writes. Caller holds c.mu.
+func (c *Checker) settleCreateMeta(op Operation, refs []createMetaWrite, data []*shared.V2Transaction, committed bool, dispatch, observe uint64) {
+	if !committed {
+		for _, r := range refs {
+			c.metaStore.drop(r.cell, r.write)
+		}
+		return
+	}
+
+	for _, r := range refs {
+		c.metaStore.commit(r.cell, r.write, observe)
+	}
+
+	if len(op.metadata) > 0 && len(data) == 1 {
+		id := data[0].GetID().String()
+		for key, val := range op.metadata {
+			cell := metaCell{kind: metaTransaction, id: id, key: key}
+			c.metaStore.register(cell, &metaWrite{value: val, dispatch: dispatch, observe: observe, committed: true})
+		}
+	}
 }
 
 // validateRead checks a target's whole server metadata map against the model:
