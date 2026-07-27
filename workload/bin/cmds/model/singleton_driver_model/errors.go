@@ -14,6 +14,8 @@ const (
 	reasonInsufficientFund = string(shared.V2ErrorsEnumInsufficientFund)
 	reasonAlreadyReverted  = string(shared.V2ErrorsEnumAlreadyRevert)
 	reasonNotFound         = string(shared.V2ErrorsEnumNotFound)
+	reasonNoPostings       = string(shared.V2ErrorsEnumNoPostings)
+	reasonConflict         = string(shared.V2ErrorsEnumConflict)
 )
 
 // errorResponse extracts a v2 API error from err, if it is one.

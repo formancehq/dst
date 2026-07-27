@@ -36,6 +36,14 @@ func generateOperation(s State) Operation {
 		}
 	}
 
+	// ~1/16: a deliberately-rejected create, exercising the admission/forging
+	// rejection branches valid traffic never triggers.
+	if random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}) == 0 {
+		if op, ok := generateRejectedCreate(s); ok {
+			return op
+		}
+	}
+
 	var op Operation
 	if random.RandomChoice([]uint8{0, 1}) == 0 {
 		op = accountSourcedOp()
@@ -44,6 +52,47 @@ func generateOperation(s State) Operation {
 	}
 
 	return withCreateMeta(op)
+}
+
+// generateRejectedCreate builds a create the server must reject, reproducing the
+// reason in the model: an empty transaction (no postings) → NO_POSTINGS, or a
+// create reusing a committed reference → CONFLICT. Returns ok=false when the
+// duplicate-reference branch is chosen but no committed reference exists yet.
+func generateRejectedCreate(s State) (Operation, bool) {
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		// No postings, fresh reference so only the empty-postings branch applies.
+		return Operation{kind: opCreateTx, reference: reference(), idemKey: idempotencyKey()}, true
+	}
+
+	ref := pickCommittedRef(s)
+	if ref == "" {
+		return Operation{}, false
+	}
+
+	// A single affordable posting so the reused reference is the only rejection.
+	return Operation{
+		kind:      opCreateTx,
+		postings:  []Posting{{Source: "world", Destination: poolAddress(), Asset: assets[0], Amount: big.NewInt(1)}},
+		reference: ref,
+		idemKey:   idempotencyKey(),
+	}, true
+}
+
+// pickCommittedRef returns a deterministically-chosen committed transaction
+// reference, or "" when the model holds none.
+func pickCommittedRef(s State) string {
+	refs := make([]string, 0, len(s.refs))
+	for r := range s.refs {
+		refs = append(refs, r)
+	}
+
+	if len(refs) == 0 {
+		return ""
+	}
+
+	sort.Strings(refs)
+
+	return random.RandomChoice(refs)
 }
 
 // withCreateMeta attaches create-time metadata to a standalone create: ~half carry

@@ -185,6 +185,27 @@ func TestApplyRevertForceHonoursFundsCheck(t *testing.T) {
 	}
 }
 
+// A create with no postings is rejected NO_POSTINGS; one reusing a committed
+// reference is rejected CONFLICT; a fresh reference commits.
+func TestApplyCreateRejections(t *testing.T) {
+	s := NewState().Apply(tx(p("world", "a", "USD", 100))).State
+	s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "r1")
+
+	if r := s.Apply(Operation{kind: opCreateTx, reference: "fresh"}); r.OK || r.Reason != "NO_POSTINGS" {
+		t.Fatalf("empty create: OK=%v reason=%q, want !OK NO_POSTINGS", r.OK, r.Reason)
+	}
+
+	dup := Operation{kind: opCreateTx, postings: []Posting{p("world", "b", "USD", 1)}, reference: "r1"}
+	if r := s.Apply(dup); r.OK || r.Reason != "CONFLICT" {
+		t.Fatalf("dup-ref create: OK=%v reason=%q, want !OK CONFLICT", r.OK, r.Reason)
+	}
+
+	fresh := Operation{kind: opCreateTx, postings: []Posting{p("world", "b", "USD", 1)}, reference: "fresh"}
+	if r := s.Apply(fresh); !r.OK {
+		t.Fatalf("fresh-ref create should commit, got reason %q", r.Reason)
+	}
+}
+
 func TestApplyRevertNotFound(t *testing.T) {
 	if r := NewState().Apply(revert("999")); r.OK || r.Reason != "NOT_FOUND" {
 		t.Fatalf("revert of unknown id: OK=%v reason=%q, want !OK NOT_FOUND", r.OK, r.Reason)

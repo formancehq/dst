@@ -73,12 +73,17 @@ type txRecord struct {
 type State struct {
 	volumes map[VolumeKey]VolumePair
 	txs     map[string]*txRecord
+	// refs holds every committed transaction reference, so a create reusing one is
+	// predicted to conflict. Not hashed (see hash): folded creates carry fresh
+	// references, which would defeat the volume-commutative dedup.
+	refs map[string]bool
 }
 
 func NewState() State {
 	return State{
 		volumes: map[VolumeKey]VolumePair{},
 		txs:     map[string]*txRecord{},
+		refs:    map[string]bool{},
 	}
 }
 
@@ -96,7 +101,12 @@ func (s State) clone() State {
 		txs[k] = v
 	}
 
-	return State{volumes: volumes, txs: txs}
+	refs := make(map[string]bool, len(s.refs))
+	for k := range s.refs {
+		refs[k] = true
+	}
+
+	return State{volumes: volumes, txs: txs, refs: refs}
 }
 
 // vol returns the cell's volumes, or the zero pair if absent.
@@ -188,6 +198,14 @@ func (s State) Apply(op Operation) Result {
 func (s *State) applyOne(op Operation) OrderResult {
 	switch op.kind {
 	case opCreateTx:
+		// Admission rejects a transaction with no postings before anything else; a
+		// reused reference conflicts at forging, before the balance floor.
+		if len(op.postings) == 0 {
+			return OrderResult{Reason: reasonNoPostings}
+		}
+		if op.reference != "" && s.refs[op.reference] {
+			return OrderResult{Reason: reasonConflict}
+		}
 		pcv, ok := s.applyPostings(op.postings, false)
 		if !ok {
 			return OrderResult{Reason: reasonInsufficientFund}
@@ -277,4 +295,7 @@ func reversePostings(ps []Posting) []Posting {
 // the commit cross-check, which learns the id from the response.
 func (s *State) recordTx(id string, postings []Posting, reference string) {
 	s.txs[id] = &txRecord{postings: postings, reference: reference}
+	if reference != "" {
+		s.refs[reference] = true
+	}
 }
