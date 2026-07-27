@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/big"
+	"strconv"
 	"testing"
 )
 
@@ -123,6 +124,22 @@ func revert(id string) Operation { return Operation{kind: opRevert, targetID: id
 func revertUnforced(id string) Operation { return Operation{kind: opRevert, targetID: id} }
 
 func bulk(ops ...Operation) Operation { return Operation{kind: opBulk, bulk: ops} }
+
+// New-transaction emission tapers with the ledger's transaction count: always
+// below txEmitFull, never at or above txEmitStop.
+func TestRollTransactionTaper(t *testing.T) {
+	if !rollTransaction(NewState()) {
+		t.Fatal("empty ledger should always mint a new transaction")
+	}
+
+	full := NewState()
+	for i := 0; i < txEmitStop; i++ {
+		full.txs[strconv.Itoa(i)] = &txRecord{}
+	}
+	if rollTransaction(full) {
+		t.Fatal("past txEmitStop should never mint a new transaction")
+	}
+}
 
 // A bulk commits every element atomically, or — if any element fails — rejects
 // the whole bulk and leaves the state unchanged.

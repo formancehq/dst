@@ -62,6 +62,23 @@ func generateOperation(s State) Operation {
 	return withCreateMeta(op)
 }
 
+// rollTransaction reports whether to mint a new transaction, tapering with the
+// ledger's transaction count (see the txEmit* knobs) so the committed set — which
+// the candidate search clones and hashes on every fold — stays bounded on long
+// runs.
+func rollTransaction(s State) bool {
+	switch n := len(s.txs); {
+	case n < txEmitFull:
+		return true
+	case n < txEmitTaper:
+		return random.RandomChoice([]uint8{0, 1}) == 0
+	case n < txEmitStop:
+		return random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5, 6, 7}) == 0
+	default:
+		return false
+	}
+}
+
 // backdatedTimestamp returns a deterministic past instant (≈2001-2017), from the
 // Antithesis RNG so it stays replayable. Second precision round-trips exactly.
 func backdatedTimestamp() time.Time {

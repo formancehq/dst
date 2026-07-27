@@ -115,6 +115,15 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 		// the committed state to pick a target, and the ticket must be reserved in
 		// dispatch order.
 		c.mu.Lock()
+		// Back-pressure: once the ledger holds many transactions, don't mint another
+		// one (creates and reverts both add to the committed set the candidate search
+		// clones and hashes). Exercise existing state with a metadata write instead.
+		if !rollTransaction(c.modelState) {
+			c.mu.Unlock()
+			runMetaWrite(ctx, cl, c)
+			time.Sleep(workerLoopPause)
+			continue
+		}
 		op := generateOperation(c.modelState)
 		ticket := c.registerInflight(op)
 		metaRefs := c.registerCreateAccountMeta(op, ticket)
