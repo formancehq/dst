@@ -118,7 +118,9 @@ func TestCandidateBasesPrunesUnaffordable(t *testing.T) {
 	}
 }
 
-func revert(id string) Operation { return Operation{kind: opRevert, targetID: id} }
+func revert(id string) Operation { return Operation{kind: opRevert, targetID: id, force: true} }
+
+func revertUnforced(id string) Operation { return Operation{kind: opRevert, targetID: id} }
 
 func bulk(ops ...Operation) Operation { return Operation{kind: opBulk, bulk: ops} }
 
@@ -162,17 +164,24 @@ func TestApplyRevert(t *testing.T) {
 	}
 }
 
-// A revert is forced, so it commits even when the reversal drives the original
-// destination negative (the funds check is skipped).
-func TestApplyRevertSkipsFundsCheck(t *testing.T) {
-	s := NewState()
-	s = s.Apply(tx(p("world", "a", "USD", 100))).State
-	s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "")
-	// Drain a so it can't cover the reversal.
-	s = s.Apply(tx(p("a", "b", "USD", 100))).State
+// A forced revert commits even when the reversal drives the original destination
+// negative (the funds check is skipped); a non-forced one overdrafts and is
+// rejected with INSUFFICIENT_FUND.
+func TestApplyRevertForceHonoursFundsCheck(t *testing.T) {
+	setup := func() State {
+		s := NewState()
+		s = s.Apply(tx(p("world", "a", "USD", 100))).State
+		s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "")
+		// Drain a so it can't cover the reversal.
+		return s.Apply(tx(p("a", "b", "USD", 100))).State
+	}
 
-	if r := s.Apply(revert("1")); !r.OK {
+	if r := setup().Apply(revert("1")); !r.OK {
 		t.Fatalf("forced revert should commit despite insufficient funds, got reason %q", r.Reason)
+	}
+
+	if r := setup().Apply(revertUnforced("1")); r.OK || r.Reason != "INSUFFICIENT_FUND" {
+		t.Fatalf("non-forced revert should overdraft: OK=%v reason=%q, want !OK INSUFFICIENT_FUND", r.OK, r.Reason)
 	}
 }
 

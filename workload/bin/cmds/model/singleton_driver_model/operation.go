@@ -14,7 +14,8 @@ const (
 //   - opCreateTx: postings + reference + idemKey.
 //   - opRevert: targetID, the server-assigned id of a committed transaction to
 //     revert. The reversed postings are derived from the tracked original at
-//     Apply time, so they need not be carried here.
+//     Apply time, so they need not be carried here. force skips the balance floor
+//     on the reversed postings.
 //   - opBulk: bulk, a list of leaf operations applied atomically (all-or-nothing)
 //     as a single /_bulk call.
 type Operation struct {
@@ -22,6 +23,7 @@ type Operation struct {
 	postings  []Posting
 	reference string
 	targetID  string
+	force     bool
 	idemKey   string
 	bulk      []Operation
 }

@@ -203,7 +203,15 @@ func (s *State) applyOne(op Operation) OrderResult {
 			return OrderResult{Reason: reasonAlreadyReverted}
 		}
 
-		pcv, _ := s.applyPostings(reversePostings(rec.postings), true)
+		// A non-forced revert applies the balance floor to the reversed postings —
+		// the reversed source is the original destination, which may since have
+		// spent the funds — so it can overdraft (INSUFFICIENT_FUND). The target is
+		// only marked reverted when the reversal commits.
+		reversed := reversePostings(rec.postings)
+		pcv, committed := s.applyPostings(reversed, op.force)
+		if !committed {
+			return OrderResult{Reason: reasonInsufficientFund}
+		}
 		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true}
 		s.txs[op.targetID] = next
 

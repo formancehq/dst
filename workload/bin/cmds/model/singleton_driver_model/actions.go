@@ -70,7 +70,10 @@ func generateBulk(s State) Operation {
 
 // generateRevert targets a committed, not-yet-reverted transaction, chosen over a
 // sorted slice (replayable, unlike map order). Concurrent picks of the same
-// target exercise the ALREADY_REVERT / REVERT_OCCURRING rejection.
+// target exercise the ALREADY_REVERT / REVERT_OCCURRING rejection. ~half are
+// non-forced, applying the balance floor to the reversed postings — the reversed
+// source (the original destination) may since have spent the funds — so they also
+// exercise the revert path's INSUFFICIENT_FUND rejection.
 func generateRevert(s State) (Operation, bool) {
 	ids := make([]string, 0, len(s.txs))
 	for id, r := range s.txs {
@@ -85,7 +88,12 @@ func generateRevert(s State) (Operation, bool) {
 
 	sort.Strings(ids)
 
-	return Operation{kind: opRevert, targetID: random.RandomChoice(ids), idemKey: idempotencyKey()}, true
+	return Operation{
+		kind:     opRevert,
+		targetID: random.RandomChoice(ids),
+		force:    random.RandomChoice([]uint8{0, 1}) == 0,
+		idemKey:  idempotencyKey(),
+	}, true
 }
 
 // worldSourcedOp credits 1..maxPostings pool accounts from world. world is
@@ -177,13 +185,13 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 		if !ok {
 			return nil, fmt.Errorf("invalid revert target id %q", op.targetID)
 		}
-		// Force skips the balance check so the reversal never fails on funds. The
-		// idempotency key makes an ambiguous (committed-but-lost) revert replay to
-		// its committed result on retry instead of returning ALREADY_REVERT.
+		// Force (when set) skips the balance check so the reversal can't fail on
+		// funds. The idempotency key makes an ambiguous (committed-but-lost) revert
+		// replay to its committed result on retry instead of returning ALREADY_REVERT.
 		res, err := cl.Ledger.V2.RevertTransaction(ctx, operations.V2RevertTransactionRequest{
 			Ledger:         ledger,
 			ID:             id,
-			Force:          pointer.For(true),
+			Force:          pointer.For(op.force),
 			IdempotencyKey: pointer.For(op.idemKey),
 		})
 		if err != nil {
@@ -213,14 +221,14 @@ func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operat
 			if !ok {
 				return nil, fmt.Errorf("invalid revert target id %q", sub.targetID)
 			}
-			// Forced, matching the standalone revert path, so a bulk reversal never
-			// fails on funds — only an already-reverted target rejects it.
+			// A non-forced element that overdrafts, or a revert of an
+			// already-reverted target, rejects the whole atomic bulk.
 			elements[i] = shared.CreateV2BulkElementRevertTransaction(shared.V2BulkElementRevertTransaction{
 				Action: string(shared.V2BulkElementTypeRevertTransaction),
 				Ik:     pointer.For(sub.idemKey),
 				Data: &shared.V2BulkElementRevertTransactionData{
 					ID:    id,
-					Force: pointer.For(true),
+					Force: pointer.For(sub.force),
 				},
 			})
 		default:
