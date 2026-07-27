@@ -33,6 +33,7 @@ import (
 	"math/big"
 	"sort"
 	"strings"
+	"time"
 )
 
 // VolumeKey is one (address, asset) cell of the volume table.
@@ -65,6 +66,10 @@ type txRecord struct {
 	postings  []Posting
 	reference string
 	reverted  bool
+	// timestamp is a create's backdated effective date, echoed on reads. nil when
+	// the server assigned it (default now, or a revert's inherited date), in which
+	// case reads do not check it.
+	timestamp *time.Time
 }
 
 // State is one ledger's model: the per-cell volume table and the committed
@@ -293,8 +298,8 @@ func reversePostings(ps []Posting) []Posting {
 
 // recordTx records a committed transaction by its server-assigned id. Called by
 // the commit cross-check, which learns the id from the response.
-func (s *State) recordTx(id string, postings []Posting, reference string) {
-	s.txs[id] = &txRecord{postings: postings, reference: reference}
+func (s *State) recordTx(id string, postings []Posting, reference string, timestamp *time.Time) {
+	s.txs[id] = &txRecord{postings: postings, reference: reference, timestamp: timestamp}
 	if reference != "" {
 		s.refs[reference] = true
 	}

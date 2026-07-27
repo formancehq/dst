@@ -1,6 +1,9 @@
 package main
 
-import "math/big"
+import (
+	"math/big"
+	"time"
+)
 
 type opKind int
 
@@ -32,6 +35,16 @@ type Operation struct {
 	// account. Both are validated on the metadata register track (metadata.go).
 	metadata    map[string]string
 	accountMeta map[string]map[string]string
+
+	// timestamp, when set on a create, is a backdated effective date the server
+	// stores verbatim and echoes on reads (validateTransactionRead). It does not
+	// affect actual post-commit volumes, which follow insertion (id) order.
+	timestamp *time.Time
+
+	// atEffectiveDate, when set on a revert, makes it inherit the original's
+	// effective date. It does not affect actual volumes; only set on forced reverts
+	// so the balance floor never depends on the effective date.
+	atEffectiveDate bool
 }
 
 // subOps returns the leaf operations Apply folds: a bulk's elements, or the

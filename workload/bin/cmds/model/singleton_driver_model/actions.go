@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/random"
 	"github.com/formancehq/dst/workload/internal"
@@ -49,9 +50,22 @@ func generateOperation(s State) Operation {
 		op = accountSourcedOp()
 	} else {
 		op = worldSourcedOp()
+		// ~half the world-sourced creates carry a backdated timestamp, stored
+		// verbatim and echoed on reads. Only world-sourced, so the backdated
+		// effective date never interacts with a non-world source's balance floor.
+		if random.RandomChoice([]uint8{0, 1}) == 0 {
+			ts := backdatedTimestamp()
+			op.timestamp = &ts
+		}
 	}
 
 	return withCreateMeta(op)
+}
+
+// backdatedTimestamp returns a deterministic past instant (≈2001-2017), from the
+// Antithesis RNG so it stays replayable. Second precision round-trips exactly.
+func backdatedTimestamp() time.Time {
+	return time.Unix(int64(1_000_000_000+random.GetRandom()%500_000_000), 0).UTC()
 }
 
 // generateRejectedCreate builds a create the server must reject, reproducing the
@@ -169,12 +183,19 @@ func generateRevert(s State) (Operation, bool) {
 
 	sort.Strings(ids)
 
-	return Operation{
+	op := Operation{
 		kind:     opRevert,
 		targetID: random.RandomChoice(ids),
 		force:    random.RandomChoice([]uint8{0, 1}) == 0,
 		idemKey:  idempotencyKey(),
-	}, true
+	}
+	// ~half the forced reverts inherit the original's effective date. Gated on
+	// force so the balance floor never depends on the effective date.
+	if op.force && random.RandomChoice([]uint8{0, 1}) == 0 {
+		op.atEffectiveDate = true
+	}
+
+	return op, true
 }
 
 // worldSourcedOp credits 1..maxPostings pool accounts from world. world is
@@ -255,6 +276,7 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 				Reference:       pointer.For(op.reference),
 				Metadata:        op.metadata,
 				AccountMetadata: op.accountMeta,
+				Timestamp:       op.timestamp,
 			},
 		})
 		if err != nil {
@@ -272,10 +294,11 @@ func sendOperation(ctx context.Context, cl *client.Formance, ledger string, op O
 		// funds. The idempotency key makes an ambiguous (committed-but-lost) revert
 		// replay to its committed result on retry instead of returning ALREADY_REVERT.
 		res, err := cl.Ledger.V2.RevertTransaction(ctx, operations.V2RevertTransactionRequest{
-			Ledger:         ledger,
-			ID:             id,
-			Force:          pointer.For(op.force),
-			IdempotencyKey: pointer.For(op.idemKey),
+			Ledger:          ledger,
+			ID:              id,
+			Force:           pointer.For(op.force),
+			AtEffectiveDate: pointer.For(op.atEffectiveDate),
+			IdempotencyKey:  pointer.For(op.idemKey),
 		})
 		if err != nil {
 			return nil, err
@@ -310,8 +333,9 @@ func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operat
 				Action: string(shared.V2BulkElementTypeRevertTransaction),
 				Ik:     pointer.For(sub.idemKey),
 				Data: &shared.V2BulkElementRevertTransactionData{
-					ID:    id,
-					Force: pointer.For(sub.force),
+					ID:              id,
+					Force:           pointer.For(sub.force),
+					AtEffectiveDate: pointer.For(sub.atEffectiveDate),
 				},
 			})
 		default:

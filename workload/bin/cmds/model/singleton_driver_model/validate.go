@@ -68,10 +68,10 @@ func (c *Checker) validateCommit(op Operation, data []*shared.V2Transaction) {
 	for i, sub := range subs {
 		switch sub.kind {
 		case opCreateTx:
-			res.State.recordTx(data[i].GetID().String(), sub.postings, sub.reference)
+			res.State.recordTx(data[i].GetID().String(), sub.postings, sub.reference, sub.timestamp)
 		case opRevert:
 			orig := c.modelState.txs[sub.targetID]
-			res.State.recordTx(data[i].GetID().String(), reversePostings(orig.postings), "")
+			res.State.recordTx(data[i].GetID().String(), reversePostings(orig.postings), "", nil)
 		}
 	}
 
@@ -156,6 +156,11 @@ func (c *Checker) validateTransactionRead(maxTicket, dR uint64, id string, tx sh
 		if !ok || rec.reverted != tx.Reverted {
 			return false
 		}
+		// A create's backdated timestamp is stored verbatim; a nil record timestamp
+		// is a server-assigned date the model doesn't predict, so it isn't checked.
+		if rec.timestamp != nil && !rec.timestamp.Equal(tx.Timestamp) {
+			return false
+		}
 		matched = postingsEqual(rec.postings, serverPostings)
 		return matched
 	})
@@ -164,10 +169,11 @@ func (c *Checker) validateTransactionRead(maxTicket, dR uint64, id string, tx sh
 
 	if !matched {
 		assert.Unreachable("singleton_driver_model: transaction read outside model", internal.Details{
-			"ledger":         c.ledger,
-			"id":             id,
-			"serverReverted": tx.Reverted,
-			"serverPostings": renderPostings(serverPostings),
+			"ledger":          c.ledger,
+			"id":              id,
+			"serverReverted":  tx.Reverted,
+			"serverPostings":  renderPostings(serverPostings),
+			"serverTimestamp": tx.Timestamp.String(),
 		})
 		return
 	}
