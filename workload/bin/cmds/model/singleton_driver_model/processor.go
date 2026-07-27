@@ -1,6 +1,10 @@
 package main
 
-import "context"
+import (
+	"context"
+
+	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
+)
 
 // registerInflight reserves a ticket and records the operation. Must run BEFORE
 // dispatch: the ticket is the dispatch order tryDrain relies on, and the
@@ -96,8 +100,39 @@ func (c *Checker) handleObservation(obs observation) {
 		return
 	}
 
-	c.insertPending(&pendingObservation{seq: minTxID(obs.data), obs: obs})
+	c.bufferSuccess(obs)
 	c.tryDrain()
+}
+
+// bufferSuccess enqueues a committed observation for in-order replay. A committed
+// atomic bulk's transactions are assigned individual ids that can interleave with
+// concurrent commits — the bulk's id span is not contiguous, since a concurrent
+// transaction may commit inside it — and post-commit volumes follow id order. So
+// each bulk element is buffered as an independent transaction at its own id,
+// draining interleaved with other transactions in id order, rather than as one
+// unit at the bulk's minimum id (which would fold the elements consecutively and
+// skip any commit that landed between them). Atomicity is only observable on the
+// failure path, which is unaffected. Caller holds c.mu.
+func (c *Checker) bufferSuccess(obs observation) {
+	subs := obs.op.subOps()
+	if obs.op.kind != opBulk || len(subs) != len(obs.data) {
+		// A single operation, or a bulk whose element count doesn't match the
+		// response — validateCommit reports the latter as one unit.
+		c.insertPending(&pendingObservation{seq: minTxID(obs.data), obs: obs})
+		return
+	}
+
+	for i, sub := range subs {
+		c.insertPending(&pendingObservation{
+			seq: obs.data[i].GetID(),
+			obs: observation{
+				ticket:        obs.ticket,
+				op:            sub,
+				data:          []*shared.V2Transaction{obs.data[i]},
+				observeTicket: obs.observeTicket,
+			},
+		})
+	}
 }
 
 // tryDrain drains buffered successes in transaction-id order while safe: the head
