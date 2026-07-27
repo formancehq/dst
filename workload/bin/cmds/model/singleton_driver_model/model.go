@@ -252,11 +252,14 @@ func (s *State) applyPostings(postings []Posting, force bool) (map[VolumeKey]Vol
 	return pcv, true
 }
 
-// reversePostings swaps source and destination of each posting, preserving order.
+// reversePostings builds a reverting transaction's postings: the ledger walks the
+// original postings back to front, swapping each source and destination, so the
+// reversal lists them in reverse order. The order is immaterial to the reversed
+// volumes (a revert is forced), but the read-back postings array must match.
 func reversePostings(ps []Posting) []Posting {
 	out := make([]Posting, len(ps))
 	for i, p := range ps {
-		out[i] = Posting{Source: p.Destination, Destination: p.Source, Asset: p.Asset, Amount: p.Amount}
+		out[len(ps)-1-i] = Posting{Source: p.Destination, Destination: p.Source, Asset: p.Asset, Amount: p.Amount}
 	}
 
 	return out
