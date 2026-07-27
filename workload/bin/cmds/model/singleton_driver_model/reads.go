@@ -59,6 +59,97 @@ func runRead(ctx context.Context, cl *client.Formance, c *Checker) {
 	c.validateAccountRead(maxTicket, addr, asset, gotIn, gotOut, found)
 }
 
+// runTransactionRead reads a committed transaction and validates its immutable
+// postings and reverted status (validateTransactionRead) plus its metadata. ~1/5
+// instead probe an id just past the committed frontier: a legal NotFound
+// (unassigned) or an in-flight create that has since committed there.
+func runTransactionRead(ctx context.Context, cl *client.Formance, c *Checker) {
+	c.mu.Lock()
+	id, probe, ok := pickTxRead(c.modelState)
+	if !ok {
+		c.mu.Unlock()
+		return
+	}
+	readID := c.registerRead()
+	c.mu.Unlock()
+	defer c.finishRead(readID)
+
+	bigID, ok := new(big.Int).SetString(id, 10)
+	if !ok {
+		return
+	}
+	res, err := cl.Ledger.V2.GetTransaction(ctx, operations.V2GetTransactionRequest{Ledger: c.ledger, ID: bigID})
+	// High-water at the read's response: ops dispatched after this can't be in what
+	// the server returned.
+	maxTicket := c.ticketSeq.Load()
+
+	if err != nil {
+		if isTransient(err) {
+			return
+		}
+		if isNotFound(err) {
+			if probe {
+				// An id past the frontier that was never assigned — a legal outcome,
+				// recorded so a run proves it reached the NotFound path.
+				assert.Sometimes(true, "singleton_driver_model: transaction read reached NotFound", internal.Details{
+					"ledger": c.ledger,
+				})
+				return
+			}
+			assert.Unreachable("singleton_driver_model: committed transaction not found", internal.Details{
+				"ledger": c.ledger,
+				"id":     id,
+			})
+			return
+		}
+		assert.Unreachable("singleton_driver_model: GetTransaction returned unexpected error", internal.Details{
+			"ledger": c.ledger,
+			"id":     id,
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	if probe {
+		// The probed id resolved to a transaction: an in-flight create committed
+		// there. The model doesn't track in-flight ids, so accept without validation.
+		dbg("TX READ probe hit in-flight tx: ledger=%s id=%s", c.ledger, id)
+		return
+	}
+
+	c.validateTransactionRead(maxTicket, readID, id, res.V2GetTransactionResponse.Data)
+}
+
+// pickTxRead chooses a transaction id to read: ~1/5 an id just past the committed
+// frontier (probe=true, reaching NotFound / in-flight ids), else a committed id
+// from the model for strong validation. Caller holds c.mu.
+func pickTxRead(s State) (id string, probe bool, ok bool) {
+	ids := committedTxIDs(s)
+	if len(ids) == 0 {
+		return "", false, false
+	}
+	if random.RandomChoice([]uint8{0, 1, 2, 3, 4}) == 0 {
+		return probeTxID(ids), true, true
+	}
+
+	return random.RandomChoice(ids), false, true
+}
+
+// probeTxID returns an id strictly past the model's largest committed id, so a
+// read of it lands on an unassigned id (NotFound) or an in-flight create.
+func probeTxID(ids []string) string {
+	max := big.NewInt(-1)
+	for _, s := range ids {
+		if v, ok := new(big.Int).SetString(s, 10); ok && v.Cmp(max) > 0 {
+			max = v
+		}
+	}
+
+	slack := big.NewInt(int64(1 + random.GetRandom()%16))
+
+	return new(big.Int).Add(max, slack).String()
+}
+
 // pickCell returns a random readable cell from the committed state as
 // (address, asset), or ok=false if there are none. Picks over a sorted slice so
 // the choice is replayable / steerable, unlike map-iteration order. Caller holds

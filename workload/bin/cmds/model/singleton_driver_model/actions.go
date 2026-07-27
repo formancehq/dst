@@ -424,3 +424,18 @@ func toSDKPostings(ps []Posting) []shared.V2Posting {
 
 	return out
 }
+
+// fromSDKPostings converts SDK postings back to the model type.
+func fromSDKPostings(ps []shared.V2Posting) []Posting {
+	out := make([]Posting, len(ps))
+	for i, p := range ps {
+		out[i] = Posting{
+			Source:      p.Source,
+			Destination: p.Destination,
+			Asset:       p.Asset,
+			Amount:      p.Amount,
+		}
+	}
+
+	return out
+}

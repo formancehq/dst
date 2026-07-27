@@ -105,6 +105,10 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 			runMetaRead(ctx, cl, c)
 			time.Sleep(workerLoopPause)
 			continue
+		case 5: // transaction read
+			runTransactionRead(ctx, cl, c)
+			time.Sleep(workerLoopPause)
+			continue
 		}
 
 		// Volume operation (create/revert). Generate under the lock: a revert reads

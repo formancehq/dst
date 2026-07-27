@@ -139,6 +139,70 @@ func (c *Checker) validateAccountRead(maxTicket uint64, addr, asset string, gotI
 	})
 }
 
+// validateTransactionRead checks a GetTransaction snapshot of a committed
+// transaction. Its postings are immutable, and its reverted flag must hold in some
+// candidate serialization — a concurrent revert may or may not have committed yet.
+// The read is registered outstanding, so modelState stays at or behind what the
+// read saw; candidateBases folds only operations dispatched no later than maxTicket.
+// Its metadata is validated on the register track (validateRead, at dR..maxTicket).
+// Acquires c.mu.
+func (c *Checker) validateTransactionRead(maxTicket, dR uint64, id string, tx shared.V2Transaction) {
+	serverPostings := fromSDKPostings(tx.Postings)
+
+	c.mu.Lock()
+	matched := false
+	c.candidateBases(maxTicket, func(base State) bool {
+		rec, ok := base.txs[id]
+		if !ok || rec.reverted != tx.Reverted {
+			return false
+		}
+		matched = postingsEqual(rec.postings, serverPostings)
+		return matched
+	})
+	metaKey, serverVal, metaOK := c.metaStore.validateRead(metaTransaction, id, dR, maxTicket, tx.Metadata)
+	c.mu.Unlock()
+
+	if !matched {
+		assert.Unreachable("singleton_driver_model: transaction read outside model", internal.Details{
+			"ledger":         c.ledger,
+			"id":             id,
+			"serverReverted": tx.Reverted,
+			"serverPostings": renderPostings(serverPostings),
+		})
+		return
+	}
+
+	if !metaOK {
+		assert.Unreachable("singleton_driver_model: transaction read metadata outside model", internal.Details{
+			"ledger":    c.ledger,
+			"id":        id,
+			"key":       metaKey,
+			"serverVal": serverVal,
+		})
+		return
+	}
+
+	dbg("TX READ OK: ledger=%s id=%s reverted=%v", c.ledger, id, tx.Reverted)
+}
+
+// postingsEqual reports whether two posting lists are identical in order and
+// content. Postings are immutable once committed, so a read must echo them exactly.
+func postingsEqual(a, b []Posting) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Source != b[i].Source || a[i].Destination != b[i].Destination || a[i].Asset != b[i].Asset {
+			return false
+		}
+		if a[i].Amount.Cmp(b[i].Amount) != 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
 // volumeCellMatches reports whether s holds exactly the (gotIn, gotOut, found)
 // reading for cell key: present with matching volumes, or absent when the server
 // returned no entry for the asset.
