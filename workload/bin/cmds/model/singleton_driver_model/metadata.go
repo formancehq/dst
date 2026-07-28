@@ -175,31 +175,35 @@ type createMetaWrite struct {
 	write *metaWrite
 }
 
-// registerCreateAccountMeta registers, at dispatch, the account-metadata writes a
-// create transaction carries, so a concurrent read sees them as in-flight
-// candidates before the create's outcome is known. settleCreateMeta commits or
-// drops them. Transaction-level metadata is not registered here: its target id is
-// assigned only on commit and no read can reach it before then. Caller holds c.mu.
+// registerCreateAccountMeta registers, at dispatch, the account-metadata writes an
+// operation's elements carry (a create transaction, or the create elements of a
+// bulk), so a concurrent read sees them as in-flight candidates before the
+// outcome is known. settleCreateMeta commits or drops them. Transaction-level
+// metadata is not registered here: its target id is assigned only on commit and no
+// read can reach it before then. Caller holds c.mu.
 func (c *Checker) registerCreateAccountMeta(op Operation, dispatch uint64) []createMetaWrite {
 	var refs []createMetaWrite
-	for addr, kv := range op.accountMeta {
-		for key, val := range kv {
-			cell := metaCell{kind: metaAccount, id: addr, key: key}
-			w := &metaWrite{value: val, dispatch: dispatch}
-			c.metaStore.register(cell, w)
-			refs = append(refs, createMetaWrite{cell: cell, write: w})
+	for _, sub := range op.subOps() {
+		for addr, kv := range sub.accountMeta {
+			for key, val := range kv {
+				cell := metaCell{kind: metaAccount, id: addr, key: key}
+				w := &metaWrite{value: val, dispatch: dispatch}
+				c.metaStore.register(cell, w)
+				refs = append(refs, createMetaWrite{cell: cell, write: w})
+			}
 		}
 	}
 
 	return refs
 }
 
-// settleCreateMeta finalizes a create's carried metadata against its outcome. On
-// commit it marks the account-metadata writes committed and registers the
-// transaction-level metadata — keyed by the id assigned on commit — as already
-// committed; otherwise (transient or a business failure, in which case the atomic
-// transaction and its metadata did not apply) it drops the account-metadata
-// writes. Caller holds c.mu.
+// settleCreateMeta finalizes the metadata an operation's elements carry against
+// its outcome. On commit it marks the account-metadata writes committed and
+// registers each element's transaction-level metadata — keyed by the id assigned
+// on commit — as already committed; otherwise (transient or a business failure, in
+// which case the atomic operation and its metadata did not apply) it drops the
+// account-metadata writes. For a bulk, elements align with data by index (as the
+// commit replay relies on). Caller holds c.mu.
 func (c *Checker) settleCreateMeta(op Operation, refs []createMetaWrite, data []*shared.V2Transaction, committed bool, dispatch, observe uint64) {
 	if !committed {
 		for _, r := range refs {
@@ -212,9 +216,16 @@ func (c *Checker) settleCreateMeta(op Operation, refs []createMetaWrite, data []
 		c.metaStore.commit(r.cell, r.write, observe)
 	}
 
-	if len(op.metadata) > 0 && len(data) == 1 {
-		id := data[0].GetID().String()
-		for key, val := range op.metadata {
+	subs := op.subOps()
+	if len(subs) != len(data) {
+		return
+	}
+	for i, sub := range subs {
+		if len(sub.metadata) == 0 {
+			continue
+		}
+		id := data[i].GetID().String()
+		for key, val := range sub.metadata {
 			cell := metaCell{kind: metaTransaction, id: id, key: key}
 			c.metaStore.register(cell, &metaWrite{value: val, dispatch: dispatch, observe: observe, committed: true})
 		}

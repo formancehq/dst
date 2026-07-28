@@ -50,13 +50,14 @@ func generateOperation(s State) Operation {
 		op = accountSourcedOp()
 	} else {
 		op = worldSourcedOp()
-		// ~half the world-sourced creates carry a backdated timestamp, stored
-		// verbatim and echoed on reads. Only world-sourced, so the backdated
-		// effective date never interacts with a non-world source's balance floor.
-		if random.RandomChoice([]uint8{0, 1}) == 0 {
-			ts := backdatedTimestamp()
-			op.timestamp = &ts
-		}
+	}
+
+	// ~half the creates carry a backdated timestamp, stored verbatim and echoed on
+	// reads. The balance floor uses actual (insertion-ordered) volumes, not the
+	// effective date, so a backdated non-world source never mispredicts.
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		ts := backdatedTimestamp()
+		op.timestamp = &ts
 	}
 
 	return withCreateMeta(op)
@@ -126,10 +127,11 @@ func pickCommittedRef(s State) string {
 	return random.RandomChoice(refs)
 }
 
-// withCreateMeta attaches create-time metadata to a standalone create: ~half carry
-// transaction metadata, ~1/3 carry account metadata on the last posting's
-// destination (already a legal account when the transaction commits). Kept out of
-// newOp so bulk elements — whose payloads carry no metadata — don't generate any.
+// withCreateMeta attaches create-time metadata to a create (standalone or a bulk
+// element): ~half carry transaction metadata, ~1/3 carry account metadata on the
+// last posting's destination (already a legal account when the transaction
+// commits). Kept out of newOp so it applies only where the payload is sent with
+// metadata, not to a bare posting list.
 func withCreateMeta(op Operation) Operation {
 	if random.RandomChoice([]uint8{0, 1}) == 0 {
 		op.metadata = randomMetaMap()
@@ -160,6 +162,9 @@ func randomMetaMap() map[string]string {
 // overdrafts and rolls back atomically), plus ~1/4 reverts of committed
 // transactions. A revert of an already-reverted target — a concurrent or
 // duplicate-within-bulk pick — rejects the whole atomic bulk with ALREADY_REVERT.
+// Create elements carry metadata applied atomically with the bulk (withCreateMeta).
+// Revert elements carry none: v2 does not apply metadata to a revert, in a bulk or
+// standalone (the SDK's bulk-revert metadata field is ignored server-side).
 func generateBulk(s State) Operation {
 	n := 2 + int(random.GetRandom()%3)
 	subs := make([]Operation, 0, n)
@@ -171,9 +176,9 @@ func generateBulk(s State) Operation {
 			}
 		}
 		if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
-			subs = append(subs, accountSourcedOp())
+			subs = append(subs, withCreateMeta(accountSourcedOp()))
 		} else {
-			subs = append(subs, worldSourcedOp())
+			subs = append(subs, withCreateMeta(worldSourcedOp()))
 		}
 	}
 
@@ -360,8 +365,10 @@ func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operat
 				Action: string(shared.V2BulkElementTypeCreateTransaction),
 				Ik:     pointer.For(sub.idemKey),
 				Data: &shared.V2PostTransaction{
-					Postings:  toSDKPostings(sub.postings),
-					Reference: pointer.For(sub.reference),
+					Postings:        toSDKPostings(sub.postings),
+					Reference:       pointer.For(sub.reference),
+					Metadata:        sub.metadata,
+					AccountMetadata: sub.accountMeta,
 				},
 			})
 		}
