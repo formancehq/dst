@@ -15,7 +15,9 @@
 #   ./run_model_test.sh [DURATION_SECONDS]      # default 30
 #
 # Environment:
-#   LEDGER_TAG       ledger image tag (default v2.3.13)
+#   LEDGER_TAG       ledger image tag (default v2.4.12). Bulk-revert-element
+#                    metadata is applied on v2.4+ only; against a v2.3 tag that
+#                    coverage produces false findings (v2.3 ignores it).
 #   HTTP_PORT        host port for the gateway (default: random)
 #   MODEL_LEDGERS    logical ledgers (default: driver default)
 #   MODEL_WORKERS    concurrent workers (default: driver default)
@@ -29,7 +31,7 @@ set -uo pipefail
 DURATION="${1:-30}"
 case "$DURATION" in ''|*[!0-9]*) echo "ERROR: duration must be a positive integer (got '$DURATION')" >&2; exit 2 ;; esac
 
-LEDGER_TAG="${LEDGER_TAG:-v2.3.13}"
+LEDGER_TAG="${LEDGER_TAG:-v2.4.12}"
 POSTGRES_IMAGE="postgres:15-alpine"
 CADDY_IMAGE="caddy:2-alpine"
 HTTP_PORT="${HTTP_PORT:-$(( 20000 + RANDOM % 10000 ))}"

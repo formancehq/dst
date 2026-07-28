@@ -162,15 +162,18 @@ func randomMetaMap() map[string]string {
 // overdrafts and rolls back atomically), plus ~1/4 reverts of committed
 // transactions. A revert of an already-reverted target — a concurrent or
 // duplicate-within-bulk pick — rejects the whole atomic bulk with ALREADY_REVERT.
-// Create elements carry metadata applied atomically with the bulk (withCreateMeta).
-// Revert elements carry none: v2 does not apply metadata to a revert, in a bulk or
-// standalone (the SDK's bulk-revert metadata field is ignored server-side).
+// Elements carry metadata applied atomically with the bulk: create elements via
+// withCreateMeta, revert elements ~half with transaction metadata. (v2.4+ applies
+// bulk-revert-element metadata; v2.3 ignores it — see run_model_test.sh.)
 func generateBulk(s State) Operation {
 	n := 2 + int(random.GetRandom()%3)
 	subs := make([]Operation, 0, n)
 	for i := 0; i < n; i++ {
 		if random.RandomChoice([]uint8{0, 1, 2, 3}) == 0 {
 			if op, ok := generateRevert(s); ok {
+				if random.RandomChoice([]uint8{0, 1}) == 0 {
+					op.metadata = randomMetaMap()
+				}
 				subs = append(subs, op)
 				continue
 			}
@@ -358,6 +361,7 @@ func sendBulk(ctx context.Context, cl *client.Formance, ledger string, op Operat
 					ID:              id,
 					Force:           pointer.For(sub.force),
 					AtEffectiveDate: pointer.For(sub.atEffectiveDate),
+					Metadata:        sub.metadata,
 				},
 			})
 		default:
