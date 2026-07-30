@@ -14,5 +14,5 @@ push:
 
 	just build-manifest "$tmpdir/resources.yaml"
 
-	docker build -f Dockerfile.config -t $ANTITHESIS_REPOSITORY/antithesis-config:daily_run $tmpdir
+	docker build --load -f Dockerfile.config -t $ANTITHESIS_REPOSITORY/antithesis-config:daily_run $tmpdir
 	docker push $ANTITHESIS_REPOSITORY/antithesis-config:daily_run
