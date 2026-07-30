@@ -105,8 +105,12 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 			runMetaRead(ctx, cl, c)
 			time.Sleep(workerLoopPause)
 			continue
-		case 5: // transaction read
-			runTransactionRead(ctx, cl, c)
+		case 5: // transaction read or query
+			if random.RandomChoice([]uint8{0, 1}) == 0 {
+				runTransactionQuery(ctx, cl, c)
+			} else {
+				runTransactionRead(ctx, cl, c)
+			}
 			time.Sleep(workerLoopPause)
 			continue
 		}
