@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
@@ -166,6 +167,124 @@ func (m *metaStore) validValues(c metaCell, dR, oR uint64) metaValues {
 	}
 
 	return v
+}
+
+// metaAssign is a concrete metadata state: present cells map to their value; a
+// cell absent from the map reads as absent. A query is validated against each
+// assignment the register admits, so the whole page — universe membership, filter
+// matches, and each row's metadata — is checked under one consistent snapshot.
+type metaAssign map[metaCell]string
+
+func (a metaAssign) clone() metaAssign {
+	out := make(metaAssign, len(a))
+	for k, v := range a {
+		out[k] = v
+	}
+	return out
+}
+
+// metaCellOption is one admissible state of a cell over a read window: present
+// with a value, or absent.
+type metaCellOption struct {
+	present bool
+	value   string
+}
+
+// cellOptions returns cell c's admissible states over [dR, oR] in a deterministic
+// order (sorted present values, then absent) so the enumeration is replayable.
+// Caller holds mu.
+func (m *metaStore) cellOptions(c metaCell, dR, oR uint64) []metaCellOption {
+	vv := m.validValues(c, dR, oR)
+
+	vals := make([]string, 0, len(vv.vals))
+	for v := range vv.vals {
+		vals = append(vals, v)
+	}
+	sort.Strings(vals)
+
+	opts := make([]metaCellOption, 0, len(vals)+1)
+	for _, v := range vals {
+		opts = append(opts, metaCellOption{present: true, value: v})
+	}
+	if vv.absent {
+		opts = append(opts, metaCellOption{present: false})
+	}
+
+	return opts
+}
+
+// metaEnumCap bounds the number of uncertain cells enumerated for one query.
+// Uncertain cells are those with an in-flight write, so at any instant there are
+// only a handful; beyond the cap the read is accepted rather than enumerate an
+// explosion (logged as coverage loss).
+const metaEnumCap = 12
+
+// enumerateMeta calls visit with each metadata assignment the register admits for
+// cells of the given kind over [dR, oR]: definite cells (a single admissible
+// state) are fixed, uncertain cells (more than one) are enumerated. visit
+// returning true stops early. Returns false without visiting when the uncertain
+// set exceeds the cap. Caller holds mu.
+func (m *metaStore) enumerateMeta(kind metaKind, dR, oR uint64, visit func(metaAssign) bool) bool {
+	base := metaAssign{}
+	var uncertain []metaCell
+	optsByCell := map[metaCell][]metaCellOption{}
+
+	for c := range m.history {
+		if c.kind != kind {
+			continue
+		}
+		opts := m.cellOptions(c, dR, oR)
+		if len(opts) == 1 {
+			if opts[0].present {
+				base[c] = opts[0].value
+			}
+			continue
+		}
+		if len(opts) > 1 {
+			uncertain = append(uncertain, c)
+			optsByCell[c] = opts
+		}
+	}
+
+	if len(uncertain) > metaEnumCap {
+		return false
+	}
+
+	sort.Slice(uncertain, func(i, j int) bool { return compareMetaCell(uncertain[i], uncertain[j]) < 0 })
+
+	cur := base.clone()
+	var rec func(i int) bool
+	rec = func(i int) bool {
+		if i == len(uncertain) {
+			return visit(cur)
+		}
+		c := uncertain[i]
+		for _, opt := range optsByCell[c] {
+			if opt.present {
+				cur[c] = opt.value
+			} else {
+				delete(cur, c)
+			}
+			if rec(i + 1) {
+				return true
+			}
+		}
+		delete(cur, c)
+		return false
+	}
+
+	return rec(0)
+}
+
+// meta returns the present metadata of the (kind, id) target under assignment a.
+func (a metaAssign) meta(kind metaKind, id string) map[string]string {
+	out := map[string]string{}
+	for cell, val := range a {
+		if cell.kind == kind && cell.id == id {
+			out[cell.key] = val
+		}
+	}
+	return out
 }
 
 // createMetaWrite pairs a registered create-time metadata write with its cell so

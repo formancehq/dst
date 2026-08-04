@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,7 +94,7 @@ func triOf(b bool) tri {
 // JSON DSL (toQuery) and evaluates against a model transaction (match), so
 // generation and prediction cannot drift. match returns a SQL truth value.
 type txFilter interface {
-	match(id uint64, rec *txRecord) tri
+	match(id uint64, rec *txRecord, assign metaAssign) tri
 	toQuery() map[string]any
 }
 
@@ -154,27 +155,31 @@ func boundedTxQuery(filter txFilter, frontier uint64) map[string]any {
 
 // validateTransactionQuery checks a ListTransactions page. The window's tx set is
 // fixed (committed txs with id <= frontier), but a tx's reverted status is mutable
-// by an in-flight revert, so the page is legal iff some candidate base's ordered
-// window matches it element-for-element — candidateBases folds in-flight reverts,
-// flipping targets' reverted flags, while folded creates (unknown id > frontier)
-// never enter the bounded window. Each row's metadata is then validated per-row on
-// the register track over [dR, maxTicket].
+// by an in-flight revert and metadata (which a filter may test) lives on the
+// register track, so the page is legal iff some candidate base and some admissible
+// transaction-metadata assignment reproduce the ordered window element-for-element
+// — candidateBases folds in-flight reverts, flipping targets' reverted flags,
+// while folded creates (unknown id > frontier) never enter the bounded window;
+// enumerateMeta supplies each row's metadata for both the filter and the per-row
+// comparison under one consistent snapshot.
 func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, reverse bool, pageSize int, serverTxs []shared.V2Transaction) {
 	c.mu.Lock()
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {
-		want := transactionWindow(base, filter, frontier, reverse, pageSize)
-		if len(want) != len(serverTxs) {
-			return false
-		}
-		for i, id := range want {
-			st := serverTxs[i]
-			if st.ID == nil || st.ID.Uint64() != id || !txRecordMatchesServer(base.txs[strconv.FormatUint(id, 10)], st) {
-				return false
+		enumerated := c.metaStore.enumerateMeta(metaTransaction, dR, maxTicket, func(assign metaAssign) bool {
+			if transactionPageMatches(base, assign, filter, frontier, reverse, pageSize, serverTxs) {
+				matched = true
+				return true
 			}
+			return false
+		})
+		if !enumerated {
+			// Too many uncertain metadata cells to enumerate — accept rather than
+			// explode (rare; logged as coverage loss).
+			dbg("TQUERY meta enumeration capped: ledger=%s", c.ledger)
+			matched = true
 		}
-		matched = true
-		return true
+		return matched
 	})
 	c.mu.Unlock()
 
@@ -189,24 +194,31 @@ func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter
 			"serverIds": serverTxIDs(serverTxs),
 			"modelIds":  joinUint64(c.modelTransactionWindow(filter, frontier, reverse, pageSize)),
 		})
-		return
 	}
+}
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, st := range serverTxs {
-		id := st.ID.String()
-		key, serverVal, metaOK := c.metaStore.validateRead(metaTransaction, id, dR, maxTicket, st.Metadata)
-		if !metaOK {
-			assert.Unreachable("singleton_driver_model: transaction query metadata outside model", internal.Details{
-				"ledger":    c.ledger,
-				"id":        id,
-				"key":       key,
-				"serverVal": serverVal,
-			})
-			return
+// transactionPageMatches reports whether the (base, assign) snapshot reproduces the
+// server page exactly: ordered ids, each row's immutable fields, and each row's
+// metadata under the assignment.
+func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, reverse bool, pageSize int, serverTxs []shared.V2Transaction) bool {
+	want := transactionWindow(base, assign, filter, frontier, reverse, pageSize)
+	if len(want) != len(serverTxs) {
+		return false
+	}
+	for i, id := range want {
+		st := serverTxs[i]
+		if st.ID == nil || st.ID.Uint64() != id {
+			return false
+		}
+		idStr := strconv.FormatUint(id, 10)
+		if !txRecordMatchesServer(base.txs[idStr], st) {
+			return false
+		}
+		if !metaRowMatch(assign.meta(metaTransaction, idStr), st.Metadata) {
+			return false
 		}
 	}
+	return true
 }
 
 // modelTransactionWindow returns the window on committed modelState, for a
@@ -215,7 +227,7 @@ func (c *Checker) modelTransactionWindow(filter txFilter, frontier uint64, rever
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return transactionWindow(c.modelState, filter, frontier, reverse, pageSize)
+	return transactionWindow(c.modelState, metaAssign{}, filter, frontier, reverse, pageSize)
 }
 
 // drainedFrontier returns the largest committed transaction id the model has
@@ -236,14 +248,14 @@ func drainedFrontier(s State) uint64 {
 // transactionWindow is the model's prediction of a ListTransactions first page:
 // the committed transactions with id <= frontier matching filter, ordered by id
 // (DESC by default, ASC when reverse), capped at pageSize. Caller holds c.mu.
-func transactionWindow(s State, filter txFilter, frontier uint64, reverse bool, pageSize int) []uint64 {
+func transactionWindow(s State, assign metaAssign, filter txFilter, frontier uint64, reverse bool, pageSize int) []uint64 {
 	var ids []uint64
 	for idStr, rec := range s.txs {
 		id, err := strconv.ParseUint(idStr, 10, 64)
 		if err != nil || id > frontier {
 			continue
 		}
-		if filter == nil || filter.match(id, rec) == triTrue {
+		if filter == nil || filter.match(id, rec, assign) == triTrue {
 			ids = append(ids, id)
 		}
 	}
@@ -316,7 +328,7 @@ func genTxFilter(depth int, sampleRef string) txFilter {
 }
 
 func genTxLeaf(sampleRef string) txFilter {
-	switch random.RandomChoice([]uint8{0, 1, 2, 3}) {
+	switch random.RandomChoice([]uint8{0, 1, 2, 3, 4, 5}) {
 	case 0:
 		return txReverted(random.RandomChoice([]uint8{0, 1}) == 0)
 	case 1:
@@ -329,6 +341,11 @@ func genTxLeaf(sampleRef string) txFilter {
 			return txReference(sampleRef)
 		}
 		return txReference(reference())
+	case 3:
+		// Key from the small pool, so it matches transactions that carry it.
+		return txMetaExists(metaKeyName())
+	case 4:
+		return txMetaMatch{key: metaKeyName(), val: metaValue()}
 	default:
 		field := random.RandomChoice([]string{"source", "destination", "account"})
 		addr := random.RandomChoice([]string{"world", poolAddress()})
@@ -340,15 +357,17 @@ func genTxLeaf(sampleRef string) txFilter {
 
 type txReverted bool
 
-func (f txReverted) match(_ uint64, rec *txRecord) tri { return triOf(rec.reverted == bool(f)) }
-func (f txReverted) toQuery() map[string]any           { return match1("reverted", bool(f)) }
+func (f txReverted) match(_ uint64, rec *txRecord, _ metaAssign) tri {
+	return triOf(rec.reverted == bool(f))
+}
+func (f txReverted) toQuery() map[string]any { return match1("reverted", bool(f)) }
 
 type txID struct {
 	op  string
 	val uint64
 }
 
-func (f txID) match(id uint64, _ *txRecord) tri {
+func (f txID) match(id uint64, _ *txRecord, _ metaAssign) tri {
 	switch f.op {
 	case "$match":
 		return triOf(id == f.val)
@@ -369,7 +388,7 @@ type txReference string
 
 // match is NULL when the transaction carries no reference (a revert): SQL
 // reference = X over a NULL column is NULL, not false.
-func (f txReference) match(_ uint64, rec *txRecord) tri {
+func (f txReference) match(_ uint64, rec *txRecord, _ metaAssign) tri {
 	if rec.reference == "" {
 		return triNull
 	}
@@ -386,7 +405,7 @@ type txAddr struct {
 	addr  string
 }
 
-func (f txAddr) match(_ uint64, rec *txRecord) tri {
+func (f txAddr) match(_ uint64, rec *txRecord, _ metaAssign) tri {
 	for _, p := range rec.postings {
 		switch f.field {
 		case "source":
@@ -407,12 +426,36 @@ func (f txAddr) match(_ uint64, rec *txRecord) tri {
 }
 func (f txAddr) toQuery() map[string]any { return match1(f.field, f.addr) }
 
+// txMetaExists matches transactions carrying metadata key (metadata -> key is not
+// null — a boolean existence check, never NULL).
+type txMetaExists string
+
+func (f txMetaExists) match(id uint64, _ *txRecord, assign metaAssign) tri {
+	_, ok := assign[metaCell{kind: metaTransaction, id: strconv.FormatUint(id, 10), key: string(f)}]
+	return triOf(ok)
+}
+func (f txMetaExists) toQuery() map[string]any {
+	return map[string]any{"$exists": map[string]any{"metadata": string(f)}}
+}
+
+// txMetaMatch matches transactions whose metadata contains key=val (jsonb
+// containment — absent key is false, not NULL).
+type txMetaMatch struct{ key, val string }
+
+func (f txMetaMatch) match(id uint64, _ *txRecord, assign metaAssign) tri {
+	v, ok := assign[metaCell{kind: metaTransaction, id: strconv.FormatUint(id, 10), key: f.key}]
+	return triOf(ok && v == f.val)
+}
+func (f txMetaMatch) toQuery() map[string]any {
+	return match1("metadata["+f.key+"]", f.val)
+}
+
 // --- Filter combinators --------------------------------------------------
 
 type txAnd [2]txFilter
 
-func (f txAnd) match(id uint64, rec *txRecord) tri {
-	return triAnd(f[0].match(id, rec), f[1].match(id, rec))
+func (f txAnd) match(id uint64, rec *txRecord, assign metaAssign) tri {
+	return triAnd(f[0].match(id, rec, assign), f[1].match(id, rec, assign))
 }
 func (f txAnd) toQuery() map[string]any {
 	return map[string]any{"$and": []map[string]any{f[0].toQuery(), f[1].toQuery()}}
@@ -420,8 +463,8 @@ func (f txAnd) toQuery() map[string]any {
 
 type txOr [2]txFilter
 
-func (f txOr) match(id uint64, rec *txRecord) tri {
-	return triOr(f[0].match(id, rec), f[1].match(id, rec))
+func (f txOr) match(id uint64, rec *txRecord, assign metaAssign) tri {
+	return triOr(f[0].match(id, rec, assign), f[1].match(id, rec, assign))
 }
 func (f txOr) toQuery() map[string]any {
 	return map[string]any{"$or": []map[string]any{f[0].toQuery(), f[1].toQuery()}}
@@ -429,8 +472,10 @@ func (f txOr) toQuery() map[string]any {
 
 type txNot [1]txFilter
 
-func (f txNot) match(id uint64, rec *txRecord) tri { return triNot(f[0].match(id, rec)) }
-func (f txNot) toQuery() map[string]any            { return map[string]any{"$not": f[0].toQuery()} }
+func (f txNot) match(id uint64, rec *txRecord, assign metaAssign) tri {
+	return triNot(f[0].match(id, rec, assign))
+}
+func (f txNot) toQuery() map[string]any { return map[string]any{"$not": f[0].toQuery()} }
 
 // --- helpers -------------------------------------------------------------
 
@@ -474,6 +519,10 @@ func describeTxFilter(f txFilter) string {
 		return "id" + x.op + strconv.FormatUint(x.val, 10)
 	case txReference:
 		return "ref=" + string(x)
+	case txMetaExists:
+		return "meta?" + string(x)
+	case txMetaMatch:
+		return "meta[" + x.key + "]=" + x.val
 	case txAddr:
 		return x.field + "=" + x.addr
 	case txAnd:
@@ -482,6 +531,375 @@ func describeTxFilter(f txFilter) string {
 		return "or(" + describeTxFilter(x[0]) + "," + describeTxFilter(x[1]) + ")"
 	case txNot:
 		return "not(" + describeTxFilter(x[0]) + ")"
+	}
+	return "?"
+}
+
+// --- Account queries -----------------------------------------------------
+//
+// ListAccounts returns accounts with volumes OR metadata, ordered by address
+// ascending (a total order — addresses are unique). The volume-derived universe
+// and balances are a function of the candidate base (addresses are known — they
+// are in the postings — so folded in-flight creates appear), but metadata lives
+// on the register track, so metadata-only accounts and each row's metadata are
+// resolved by enumerating the register's admissible assignments (metaStore
+// .enumerateMeta). The page is legal iff some (candidate base, metadata
+// assignment) reproduces it: universe, filter, order, page cap, and each row's
+// volumes and metadata all consistent under that one snapshot. No pit, no cursor.
+
+// accFilter is a generated account query filter (renders to the v2 DSL and
+// evaluates against the model under a candidate base + metadata assignment).
+type accFilter interface {
+	match(addr string, base State, assign metaAssign) tri
+	toQuery() map[string]any
+}
+
+// runAccountQuery issues a ListAccounts first page (address order, expanded
+// volumes) and checks it against the model (validateAccountQuery).
+func runAccountQuery(ctx context.Context, cl *client.Formance, c *Checker) {
+	pageSize := queryPageSize()
+
+	c.mu.Lock()
+	readID := c.registerRead()
+	c.mu.Unlock()
+	defer c.finishRead(readID)
+
+	filter := genAccountFilter()
+
+	req := operations.V2ListAccountsRequest{
+		Ledger:   c.ledger,
+		PageSize: pointer.For(int64(pageSize)),
+		Expand:   pointer.For("volumes"),
+	}
+	if filter != nil {
+		req.Query = filter.toQuery()
+	}
+
+	resp, err := cl.Ledger.V2.ListAccounts(ctx, req)
+	oR := c.ticketSeq.Load()
+
+	if err != nil {
+		if isTransient(err) {
+			return
+		}
+		assert.Unreachable("singleton_driver_model: ListAccounts returned unexpected error", internal.Details{
+			"ledger": c.ledger,
+			"filter": describeAccFilter(filter),
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	serverAccts := resp.V2AccountsCursorResponse.Cursor.Data
+	c.validateAccountQuery(oR, readID, filter, pageSize, serverAccts)
+}
+
+// validateAccountQuery checks a ListAccounts page: legal iff some candidate base
+// and some admissible metadata assignment reproduce the ordered window
+// position-for-position, each row's address, volumes (on the base), and metadata
+// (under the assignment) matching. Acquires c.mu.
+func (c *Checker) validateAccountQuery(maxTicket, dR uint64, filter accFilter, pageSize int, serverAccts []shared.V2Account) {
+	c.mu.Lock()
+	matched := false
+	c.candidateBases(maxTicket, func(base State) bool {
+		enumerated := c.metaStore.enumerateMeta(metaAccount, dR, maxTicket, func(assign metaAssign) bool {
+			if accountPageMatches(base, assign, filter, pageSize, serverAccts) {
+				matched = true
+				return true
+			}
+			return false
+		})
+		if !enumerated {
+			// Too many uncertain metadata cells to enumerate — accept rather than
+			// explode (rare; logged as coverage loss).
+			dbg("AQUERY meta enumeration capped: ledger=%s", c.ledger)
+			matched = true
+		}
+		return matched
+	})
+	c.mu.Unlock()
+
+	if !matched {
+		assert.Unreachable("singleton_driver_model: account query outside model", internal.Details{
+			"ledger":      c.ledger,
+			"filter":      describeAccFilter(filter),
+			"pageSize":    pageSize,
+			"rows":        len(serverAccts),
+			"serverAddrs": serverAccountAddrs(serverAccts),
+		})
+	}
+}
+
+// accountPageMatches reports whether the (base, assign) snapshot reproduces the
+// server page exactly.
+func accountPageMatches(base State, assign metaAssign, filter accFilter, pageSize int, serverAccts []shared.V2Account) bool {
+	want := accountWindow(base, assign, filter, pageSize)
+	if len(want) != len(serverAccts) {
+		return false
+	}
+	for i, addr := range want {
+		sa := serverAccts[i]
+		if sa.Address != addr || !accountVolumesMatch(base, addr, sa.Volumes) || !metaRowMatch(assign.meta(metaAccount, addr), sa.Metadata) {
+			return false
+		}
+	}
+	return true
+}
+
+// accountWindow is the model's prediction of a ListAccounts first page: the
+// accounts with volumes (in base) or metadata (present under assign) matching
+// filter, in address order, capped at pageSize.
+func accountWindow(base State, assign metaAssign, filter accFilter, pageSize int) []string {
+	seen := map[string]bool{}
+	for k := range base.volumes {
+		seen[k.Address] = true
+	}
+	for cell := range assign {
+		if cell.kind == metaAccount {
+			seen[cell.id] = true
+		}
+	}
+
+	var addrs []string
+	for a := range seen {
+		if filter == nil || filter.match(a, base, assign) == triTrue {
+			addrs = append(addrs, a)
+		}
+	}
+
+	sort.Strings(addrs) // address ascending (default order)
+
+	if len(addrs) > pageSize {
+		addrs = addrs[:pageSize]
+	}
+
+	return addrs
+}
+
+// accountVolumesMatch compares the account's model volumes (uncolored, per asset)
+// on the base against the server's expanded volumes.
+func accountVolumesMatch(base State, addr string, server map[string]shared.V2Volume) bool {
+	model := map[string]VolumePair{}
+	for k, vp := range base.volumes {
+		if k.Address == addr {
+			model[k.Asset] = vp
+		}
+	}
+
+	present := 0
+	for asset, sv := range server {
+		mv, ok := model[asset]
+		if !ok {
+			// A zero cell the model never created is not a discrepancy only if the
+			// server reports zero for it; otherwise it is.
+			if sv.GetInput().Sign() != 0 || sv.GetOutput().Sign() != 0 {
+				return false
+			}
+			continue
+		}
+		if mv.Input.Cmp(sv.GetInput()) != 0 || mv.Output.Cmp(sv.GetOutput()) != 0 {
+			return false
+		}
+		present++
+	}
+
+	return present == len(model)
+}
+
+// metaRowMatch compares a row's model metadata (present cells under an assignment)
+// against the server's, ignoring server-managed reserved keys.
+func metaRowMatch(model map[string]string, server map[string]string) bool {
+	filtered := map[string]string{}
+	for k, v := range server {
+		if strings.HasPrefix(k, reservedMetaPrefix) {
+			continue
+		}
+		filtered[k] = v
+	}
+
+	if len(model) != len(filtered) {
+		return false
+	}
+	for k, v := range model {
+		if filtered[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// --- Account filter generation -------------------------------------------
+
+// genAccountFilter rolls an account query filter: ~1/2 the universe (nil, which
+// exercises the metadata-only-account universe), else an exact-address leaf or a
+// boolean composition.
+func genAccountFilter() accFilter {
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		return nil
+	}
+	return genAccFilter(0)
+}
+
+func genAccFilter(depth int) accFilter {
+	if depth >= maxQueryGenDepth || random.RandomChoice([]uint8{0, 1}) == 0 {
+		return genAccLeaf()
+	}
+	switch random.RandomChoice([]uint8{0, 1, 2}) {
+	case 0:
+		return accAnd{genAccFilter(depth + 1), genAccFilter(depth + 1)}
+	case 1:
+		return accOr{genAccFilter(depth + 1), genAccFilter(depth + 1)}
+	default:
+		return accNot{genAccFilter(depth + 1)}
+	}
+}
+
+func genAccLeaf() accFilter {
+	switch random.RandomChoice([]uint8{0, 1, 2, 3}) {
+	case 0:
+		return accAddr(poolAddress())
+	case 1:
+		// Key from the small pool, so it matches accounts that carry it.
+		return accMetaExists(metaKeyName())
+	case 2:
+		// A fresh value usually yields an empty window — still a valid page.
+		return accMetaMatch{key: metaKeyName(), val: metaValue()}
+	default:
+		op := random.RandomChoice([]string{"$match", "$gte", "$lte", "$gt", "$lt"})
+		return accBalance{asset: random.RandomChoice(assets), op: op, val: balanceThreshold()}
+	}
+}
+
+// balanceThreshold rolls a balance comparison value: 0 (splits funded vs
+// world/empty), a small value, or the full amount range.
+func balanceThreshold() uint64 {
+	switch random.RandomChoice([]uint8{0, 1, 2}) {
+	case 0:
+		return 0
+	case 1:
+		return random.GetRandom() % 1_000_000_000
+	default:
+		return random.GetRandom()
+	}
+}
+
+// accAddr matches an exact account address.
+type accAddr string
+
+func (f accAddr) match(addr string, _ State, _ metaAssign) tri { return triOf(addr == string(f)) }
+func (f accAddr) toQuery() map[string]any                      { return match1("address", string(f)) }
+
+// accMetaExists matches accounts carrying metadata key. Present/absent is a
+// boolean existence check (metadata -> key is not null), never NULL.
+type accMetaExists string
+
+func (f accMetaExists) match(addr string, _ State, m metaAssign) tri {
+	_, ok := m[metaCell{kind: metaAccount, id: addr, key: string(f)}]
+	return triOf(ok)
+}
+func (f accMetaExists) toQuery() map[string]any {
+	return map[string]any{"$exists": map[string]any{"metadata": string(f)}}
+}
+
+// accMetaMatch matches accounts whose metadata contains key=val (jsonb
+// containment — absent key is false, not NULL).
+type accMetaMatch struct{ key, val string }
+
+func (f accMetaMatch) match(addr string, _ State, m metaAssign) tri {
+	v, ok := m[metaCell{kind: metaAccount, id: addr, key: f.key}]
+	return triOf(ok && v == f.val)
+}
+func (f accMetaMatch) toQuery() map[string]any {
+	return match1("metadata["+f.key+"]", f.val)
+}
+
+// accBalance matches on an account's net balance for an asset (input - output).
+// An account with no volume cell for the asset has a NULL balance, so the
+// comparison is NULL (excluded), not false.
+type accBalance struct {
+	asset string
+	op    string
+	val   uint64
+}
+
+func (f accBalance) match(addr string, base State, _ metaAssign) tri {
+	vp, ok := base.volumes[VolumeKey{Address: addr, Asset: f.asset}]
+	if !ok {
+		return triNull
+	}
+	cmp := new(big.Int).Sub(&vp.Input, &vp.Output).Cmp(new(big.Int).SetUint64(f.val))
+	switch f.op {
+	case "$match":
+		return triOf(cmp == 0)
+	case "$gte":
+		return triOf(cmp >= 0)
+	case "$lte":
+		return triOf(cmp <= 0)
+	case "$gt":
+		return triOf(cmp > 0)
+	case "$lt":
+		return triOf(cmp < 0)
+	}
+	return triFalse
+}
+func (f accBalance) toQuery() map[string]any {
+	field := "balance[" + f.asset + "]"
+	if f.op == "$match" {
+		return match1(field, f.val)
+	}
+	return map[string]any{f.op: map[string]any{field: f.val}}
+}
+
+type accAnd [2]accFilter
+
+func (f accAnd) match(a string, b State, m metaAssign) tri {
+	return triAnd(f[0].match(a, b, m), f[1].match(a, b, m))
+}
+func (f accAnd) toQuery() map[string]any {
+	return map[string]any{"$and": []map[string]any{f[0].toQuery(), f[1].toQuery()}}
+}
+
+type accOr [2]accFilter
+
+func (f accOr) match(a string, b State, m metaAssign) tri {
+	return triOr(f[0].match(a, b, m), f[1].match(a, b, m))
+}
+func (f accOr) toQuery() map[string]any {
+	return map[string]any{"$or": []map[string]any{f[0].toQuery(), f[1].toQuery()}}
+}
+
+type accNot [1]accFilter
+
+func (f accNot) match(a string, b State, m metaAssign) tri { return triNot(f[0].match(a, b, m)) }
+func (f accNot) toQuery() map[string]any                   { return map[string]any{"$not": f[0].toQuery()} }
+
+func serverAccountAddrs(accts []shared.V2Account) string {
+	parts := make([]string, len(accts))
+	for i, a := range accts {
+		parts[i] = a.Address
+	}
+	return strings.Join(parts, ",")
+}
+
+func describeAccFilter(f accFilter) string {
+	if f == nil {
+		return "*"
+	}
+	switch x := f.(type) {
+	case accAddr:
+		return "addr=" + string(x)
+	case accMetaExists:
+		return "meta?" + string(x)
+	case accMetaMatch:
+		return "meta[" + x.key + "]=" + x.val
+	case accBalance:
+		return "bal[" + x.asset + "]" + x.op + strconv.FormatUint(x.val, 10)
+	case accAnd:
+		return "and(" + describeAccFilter(x[0]) + "," + describeAccFilter(x[1]) + ")"
+	case accOr:
+		return "or(" + describeAccFilter(x[0]) + "," + describeAccFilter(x[1]) + ")"
+	case accNot:
+		return "not(" + describeAccFilter(x[0]) + ")"
 	}
 	return "?"
 }

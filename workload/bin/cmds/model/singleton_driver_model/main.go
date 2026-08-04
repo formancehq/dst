@@ -101,8 +101,12 @@ func runWorker(ctx context.Context, cl *client.Formance, checkers []*Checker) {
 			runMetaWrite(ctx, cl, c)
 			time.Sleep(workerLoopPause)
 			continue
-		case 4: // metadata read
-			runMetaRead(ctx, cl, c)
+		case 4: // metadata read or account query
+			if random.RandomChoice([]uint8{0, 1}) == 0 {
+				runAccountQuery(ctx, cl, c)
+			} else {
+				runMetaRead(ctx, cl, c)
+			}
 			time.Sleep(workerLoopPause)
 			continue
 		case 5: // transaction read or query
