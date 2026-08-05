@@ -41,20 +41,20 @@ func TestTriOps(t *testing.T) {
 }
 
 // The window is committed txs with id <= frontier matching the filter, ordered by
-// id (DESC default, ASC on reverse), capped at pageSize.
+// id (descending or ascending), capped at pageSize.
 func TestTransactionWindow(t *testing.T) {
 	s := NewState()
 	s.recordTx("1", []Posting{p("world", "a", "USD", 10)}, "r1", nil)
 	s.recordTx("2", []Posting{p("world", "b", "USD", 10)}, "r2", nil)
 	s.recordTx("3", []Posting{p("world", "c", "USD", 10)}, "r3", nil)
 
-	if got := transactionWindow(s, nil, nil, 2, false, 10); len(got) != 2 || got[0] != 2 || got[1] != 1 {
+	if got := transactionWindow(s, nil, nil, 2, true, 10); len(got) != 2 || got[0] != 2 || got[1] != 1 {
 		t.Fatalf("DESC frontier=2 = %v, want [2 1]", got)
 	}
-	if got := transactionWindow(s, nil, nil, 3, true, 10); len(got) != 3 || got[0] != 1 || got[2] != 3 {
+	if got := transactionWindow(s, nil, nil, 3, false, 10); len(got) != 3 || got[0] != 1 || got[2] != 3 {
 		t.Fatalf("ASC = %v, want [1 2 3]", got)
 	}
-	if got := transactionWindow(s, nil, nil, 3, true, 2); len(got) != 2 || got[1] != 2 {
+	if got := transactionWindow(s, nil, nil, 3, false, 2); len(got) != 2 || got[1] != 2 {
 		t.Fatalf("pageSize=2 = %v, want [1 2]", got)
 	}
 }

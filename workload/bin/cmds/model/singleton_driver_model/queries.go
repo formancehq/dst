@@ -31,8 +31,9 @@ import (
 // metadata is checked per-row on the register track (metaStore), which is where v2
 // metadata lives and is not filtered on.
 //
-// Ordering: transactions default to id DESC, reverse flips to ASC. No pit
-// (current state), no cursor (first page only).
+// Ordering: transactions default to id DESC; reverse flips to ASC, and a
+// generated sort=id:<dir> overrides the direction (the server applies reverse
+// first, then sort). No pit (current state), no cursor (first page only).
 
 // queryPageSize is the page size a query requests. Kept at or below the server's
 // default (15) so the model sizes its window identically.
@@ -102,6 +103,18 @@ type txFilter interface {
 // the model's ordered window (validateTransactionQuery).
 func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	reverse := random.RandomChoice([]uint8{0, 1}) == 1
+	// Default order is id DESC; reverse flips to ASC; a generated sort=id:<dir>
+	// then overrides the direction, mirroring the server's precedence.
+	descending := !reverse
+	var sortParam *string
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		descending = random.RandomChoice([]uint8{0, 1}) == 0
+		if descending {
+			sortParam = pointer.For("id:desc")
+		} else {
+			sortParam = pointer.For("id:asc")
+		}
+	}
 	pageSize := queryPageSize()
 
 	c.mu.Lock()
@@ -117,6 +130,7 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 		Ledger:   c.ledger,
 		PageSize: pointer.For(int64(pageSize)),
 		Reverse:  pointer.For(reverse),
+		Sort:     sortParam,
 		Query:    boundedTxQuery(filter, frontier),
 	}
 
@@ -138,7 +152,7 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	}
 
 	serverTxs := resp.V2TransactionsCursorResponse.Cursor.Data
-	c.validateTransactionQuery(oR, readID, filter, frontier, reverse, pageSize, serverTxs)
+	c.validateTransactionQuery(oR, readID, filter, frontier, descending, pageSize, serverTxs)
 }
 
 // boundedTxQuery renders the generated filter conjoined with id <= frontier — the
@@ -162,12 +176,12 @@ func boundedTxQuery(filter txFilter, frontier uint64) map[string]any {
 // while folded creates (unknown id > frontier) never enter the bounded window;
 // enumerateMeta supplies each row's metadata for both the filter and the per-row
 // comparison under one consistent snapshot.
-func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, reverse bool, pageSize int, serverTxs []shared.V2Transaction) {
+func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) {
 	c.mu.Lock()
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {
 		enumerated := c.metaStore.enumerateMeta(metaTransaction, dR, maxTicket, func(assign metaAssign) bool {
-			if transactionPageMatches(base, assign, filter, frontier, reverse, pageSize, serverTxs) {
+			if transactionPageMatches(base, assign, filter, frontier, descending, pageSize, serverTxs) {
 				matched = true
 				return true
 			}
@@ -186,13 +200,13 @@ func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter
 	if !matched {
 		assert.Unreachable("singleton_driver_model: transaction query outside model", internal.Details{
 			"ledger":    c.ledger,
-			"filter":    describeTxFilter(filter),
-			"frontier":  frontier,
-			"reverse":   reverse,
-			"pageSize":  pageSize,
-			"rows":      len(serverTxs),
-			"serverIds": serverTxIDs(serverTxs),
-			"modelIds":  joinUint64(c.modelTransactionWindow(filter, frontier, reverse, pageSize)),
+			"filter":     describeTxFilter(filter),
+			"frontier":   frontier,
+			"descending": descending,
+			"pageSize":   pageSize,
+			"rows":       len(serverTxs),
+			"serverIds":  serverTxIDs(serverTxs),
+			"modelIds":   joinUint64(c.modelTransactionWindow(filter, frontier, descending, pageSize)),
 		})
 	}
 }
@@ -200,8 +214,8 @@ func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter
 // transactionPageMatches reports whether the (base, assign) snapshot reproduces the
 // server page exactly: ordered ids, each row's immutable fields, and each row's
 // metadata under the assignment.
-func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, reverse bool, pageSize int, serverTxs []shared.V2Transaction) bool {
-	want := transactionWindow(base, assign, filter, frontier, reverse, pageSize)
+func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) bool {
+	want := transactionWindow(base, assign, filter, frontier, descending, pageSize)
 	if len(want) != len(serverTxs) {
 		return false
 	}
@@ -223,11 +237,11 @@ func transactionPageMatches(base State, assign metaAssign, filter txFilter, fron
 
 // modelTransactionWindow returns the window on committed modelState, for a
 // finding's diagnostics. Acquires c.mu.
-func (c *Checker) modelTransactionWindow(filter txFilter, frontier uint64, reverse bool, pageSize int) []uint64 {
+func (c *Checker) modelTransactionWindow(filter txFilter, frontier uint64, descending bool, pageSize int) []uint64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return transactionWindow(c.modelState, metaAssign{}, filter, frontier, reverse, pageSize)
+	return transactionWindow(c.modelState, metaAssign{}, filter, frontier, descending, pageSize)
 }
 
 // drainedFrontier returns the largest committed transaction id the model has
@@ -248,7 +262,7 @@ func drainedFrontier(s State) uint64 {
 // transactionWindow is the model's prediction of a ListTransactions first page:
 // the committed transactions with id <= frontier matching filter, ordered by id
 // (DESC by default, ASC when reverse), capped at pageSize. Caller holds c.mu.
-func transactionWindow(s State, assign metaAssign, filter txFilter, frontier uint64, reverse bool, pageSize int) []uint64 {
+func transactionWindow(s State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pageSize int) []uint64 {
 	var ids []uint64
 	for idStr, rec := range s.txs {
 		id, err := strconv.ParseUint(idStr, 10, 64)
@@ -262,8 +276,7 @@ func transactionWindow(s State, assign metaAssign, filter txFilter, frontier uin
 
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	// Default order is id DESC; reverse yields ASC.
-	if !reverse {
+	if descending {
 		reverseUint64(ids)
 	}
 
@@ -538,7 +551,8 @@ func describeTxFilter(f txFilter) string {
 // --- Account queries -----------------------------------------------------
 //
 // ListAccounts returns accounts with volumes OR metadata, ordered by address
-// ascending (a total order — addresses are unique). The volume-derived universe
+// (ascending by default — a total order, addresses are unique — or descending
+// under sort=address:desc). The volume-derived universe
 // and balances are a function of the candidate base (addresses are known — they
 // are in the postings — so folded in-flight creates appear), but metadata lives
 // on the register track, so metadata-only accounts and each row's metadata are
@@ -557,6 +571,17 @@ type accFilter interface {
 // runAccountQuery issues a ListAccounts first page (address order, expanded
 // volumes) and checks it against the model (validateAccountQuery).
 func runAccountQuery(ctx context.Context, cl *client.Formance, c *Checker) {
+	// Default order is address ASC; a generated sort=address:<dir> can flip it.
+	descending := false
+	var sortParam *string
+	if random.RandomChoice([]uint8{0, 1}) == 0 {
+		descending = random.RandomChoice([]uint8{0, 1}) == 0
+		if descending {
+			sortParam = pointer.For("address:desc")
+		} else {
+			sortParam = pointer.For("address:asc")
+		}
+	}
 	pageSize := queryPageSize()
 
 	c.mu.Lock()
@@ -570,6 +595,7 @@ func runAccountQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 		Ledger:   c.ledger,
 		PageSize: pointer.For(int64(pageSize)),
 		Expand:   pointer.For("volumes"),
+		Sort:     sortParam,
 	}
 	if filter != nil {
 		req.Query = filter.toQuery()
@@ -591,19 +617,19 @@ func runAccountQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	}
 
 	serverAccts := resp.V2AccountsCursorResponse.Cursor.Data
-	c.validateAccountQuery(oR, readID, filter, pageSize, serverAccts)
+	c.validateAccountQuery(oR, readID, filter, descending, pageSize, serverAccts)
 }
 
 // validateAccountQuery checks a ListAccounts page: legal iff some candidate base
 // and some admissible metadata assignment reproduce the ordered window
 // position-for-position, each row's address, volumes (on the base), and metadata
 // (under the assignment) matching. Acquires c.mu.
-func (c *Checker) validateAccountQuery(maxTicket, dR uint64, filter accFilter, pageSize int, serverAccts []shared.V2Account) {
+func (c *Checker) validateAccountQuery(maxTicket, dR uint64, filter accFilter, descending bool, pageSize int, serverAccts []shared.V2Account) {
 	c.mu.Lock()
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {
 		enumerated := c.metaStore.enumerateMeta(metaAccount, dR, maxTicket, func(assign metaAssign) bool {
-			if accountPageMatches(base, assign, filter, pageSize, serverAccts) {
+			if accountPageMatches(base, assign, filter, descending, pageSize, serverAccts) {
 				matched = true
 				return true
 			}
@@ -623,6 +649,7 @@ func (c *Checker) validateAccountQuery(maxTicket, dR uint64, filter accFilter, p
 		assert.Unreachable("singleton_driver_model: account query outside model", internal.Details{
 			"ledger":      c.ledger,
 			"filter":      describeAccFilter(filter),
+			"descending":  descending,
 			"pageSize":    pageSize,
 			"rows":        len(serverAccts),
 			"serverAddrs": serverAccountAddrs(serverAccts),
@@ -632,8 +659,8 @@ func (c *Checker) validateAccountQuery(maxTicket, dR uint64, filter accFilter, p
 
 // accountPageMatches reports whether the (base, assign) snapshot reproduces the
 // server page exactly.
-func accountPageMatches(base State, assign metaAssign, filter accFilter, pageSize int, serverAccts []shared.V2Account) bool {
-	want := accountWindow(base, assign, filter, pageSize)
+func accountPageMatches(base State, assign metaAssign, filter accFilter, descending bool, pageSize int, serverAccts []shared.V2Account) bool {
+	want := accountWindow(base, assign, filter, descending, pageSize)
 	if len(want) != len(serverAccts) {
 		return false
 	}
@@ -648,8 +675,9 @@ func accountPageMatches(base State, assign metaAssign, filter accFilter, pageSiz
 
 // accountWindow is the model's prediction of a ListAccounts first page: the
 // accounts with volumes (in base) or metadata (present under assign) matching
-// filter, in address order, capped at pageSize.
-func accountWindow(base State, assign metaAssign, filter accFilter, pageSize int) []string {
+// filter, in address order (descending flips the default ascending), capped at
+// pageSize.
+func accountWindow(base State, assign metaAssign, filter accFilter, descending bool, pageSize int) []string {
 	seen := map[string]bool{}
 	for k := range base.volumes {
 		seen[k.Address] = true
@@ -667,7 +695,12 @@ func accountWindow(base State, assign metaAssign, filter accFilter, pageSize int
 		}
 	}
 
-	sort.Strings(addrs) // address ascending (default order)
+	sort.Strings(addrs)
+	if descending {
+		for i, j := 0, len(addrs)-1; i < j; i, j = i+1, j-1 {
+			addrs[i], addrs[j] = addrs[j], addrs[i]
+		}
+	}
 
 	if len(addrs) > pageSize {
 		addrs = addrs[:pageSize]
