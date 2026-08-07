@@ -176,11 +176,23 @@ func runMetaWrite(ctx context.Context, cl *client.Formance, c *Checker) {
 	c.mu.Unlock()
 
 	err := sendMetaOp(ctx, cl, c.ledger, op)
+	observe := c.ticketSeq.Load()
+
+	// On a successful account/transaction write, resolve its position in the
+	// total order from the log (by idempotency key) so concurrent writes to a
+	// cell are ordered exactly. Ledger-level metadata carries no key and no log.
+	var logID uint64
+	var date time.Time
+	if err == nil && op.cell.kind != metaLedger {
+		logID, date, _ = resolveMetaLog(ctx, cl, c.ledger, op.idemKey)
+	}
 
 	c.mu.Lock()
 	switch {
 	case err == nil, op.write.deleted && isNotFound(err):
-		c.metaStore.commit(op.cell, op.write, c.ticketSeq.Load())
+		op.write.logID = logID
+		op.write.date = date
+		c.metaStore.commit(op.cell, op.write, observe)
 	default:
 		c.metaStore.drop(op.cell, op.write)
 	}

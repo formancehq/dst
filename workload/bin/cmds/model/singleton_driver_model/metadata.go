@@ -3,6 +3,7 @@ package main
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
 )
@@ -45,12 +46,18 @@ type metaTarget struct {
 
 // metaWrite is one observed write to a cell. deleted marks a delete (the cell's
 // value becomes absent). committed/observe are set when the response is seen.
+// logID is the write's position in the ledger's total order, resolved after the
+// write by looking its idempotency key up in the log; 0 means unresolved (an
+// in-flight write, or one whose log lookup failed), which falls back to real-time
+// ordering. date is the log's effective instant.
 type metaWrite struct {
 	value     string
 	deleted   bool
 	dispatch  uint64
 	observe   uint64
 	committed bool
+	logID     uint64
+	date      time.Time
 }
 
 // metaStore holds the per-cell write history for read validation.
@@ -123,10 +130,12 @@ type metaValues struct {
 // validValues enumerates the values cell c could return for a read spanning
 // [dR, oR]. A write w is a candidate if it could be the cell's latest at the
 // read's linearization point: dispatched before the read returned, and not
-// definitely overwritten before the read began (no committed w2 that started
-// after w finished and finished before the read began). In-flight writes are
-// never dominated (their commit time is unknown), so they stay candidates. Absent
-// is legal when no write had committed before the read began. Caller holds mu.
+// definitely overwritten before the read began. w is overwritten by a committed
+// w2 that finished before the read began (w2.observe < dR) and is later in the
+// total order — by log id when both are resolved, else by real-time (w2 started
+// after w finished). In-flight writes are never dominated (their order is
+// unknown), so they stay candidates. Absent is legal when no write had committed
+// before the read began. Caller holds mu.
 func (m *metaStore) validValues(c metaCell, dR, oR uint64) metaValues {
 	v := metaValues{vals: map[string]bool{}}
 
@@ -150,7 +159,17 @@ func (m *metaStore) validValues(c metaCell, dR, oR uint64) metaValues {
 		if w.committed {
 			stale := false
 			for _, w2 := range h {
-				if w2 != w && w2.committed && w2.dispatch > w.observe && w2.observe < dR {
+				// w2 can dominate w only if it definitely committed before the read began.
+				if w2 == w || !w2.committed || w2.observe >= dR {
+					continue
+				}
+				var dominates bool
+				if w.logID > 0 && w2.logID > 0 {
+					dominates = w2.logID > w.logID
+				} else {
+					dominates = w2.dispatch > w.observe
+				}
+				if dominates {
 					stale = true
 					break
 				}

@@ -11,7 +11,7 @@ require (
 )
 
 require (
-	github.com/formancehq/formance-sdk-go/v3 v3.8.1
+	github.com/formancehq/formance-sdk-go/v3 v3.8.2-0.20260806181001-04c02a6e5c07
 	github.com/formancehq/go-libs/v2 v2.2.3
 	github.com/formancehq/go-libs/v3 v3.0.1
 	k8s.io/apimachinery v0.34.0

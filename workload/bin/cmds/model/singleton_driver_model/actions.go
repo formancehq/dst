@@ -521,6 +521,50 @@ func sendMetaOp(ctx context.Context, cl *client.Formance, ledger string, op meta
 	return nil
 }
 
+// resolveMetaLog looks a metadata write up in the log by its idempotency key,
+// returning its position in the ledger's total order (log id) and effective
+// date. The just-committed write is the newest log, so it sits at the head of
+// the id-descending listing; a few pages bound the scan under concurrency. ok is
+// false when the lookup fails or the entry isn't found — the write then stays
+// unordered and falls back to real-time ordering.
+func resolveMetaLog(ctx context.Context, cl *client.Formance, ledger, idemKey string) (logID uint64, date time.Time, ok bool) {
+	var cursor *string
+	for page := 0; page < 4; page++ {
+		req := operations.V2ListLogsRequest{Ledger: ledger}
+		if cursor == nil {
+			req.PageSize = pointer.For(int64(100))
+		} else {
+			req.Cursor = cursor
+		}
+
+		resp, err := cl.Ledger.V2.ListLogs(ctx, req)
+		if err != nil || resp.V2LogsCursorResponse == nil {
+			dbg("metalog: ListLogs failed, write left unordered (page=%d)", page)
+			return 0, time.Time{}, false
+		}
+
+		cur := resp.V2LogsCursorResponse.Cursor
+		for i := range cur.Data {
+			lg := cur.Data[i]
+			if k := lg.GetIdempotencyKey(); k != nil && *k == idemKey {
+				id := lg.GetID()
+				if id == nil {
+					return 0, time.Time{}, false
+				}
+				return id.Uint64(), lg.GetDate(), true
+			}
+		}
+
+		if cur.Next == nil || *cur.Next == "" {
+			break
+		}
+		cursor = cur.Next
+	}
+
+	dbg("metalog: key not found in log, write left unordered")
+	return 0, time.Time{}, false
+}
+
 // committedTxIDs returns the model's committed transaction ids, sorted.
 func committedTxIDs(s State) []string {
 	ids := make([]string, 0, len(s.txs))
