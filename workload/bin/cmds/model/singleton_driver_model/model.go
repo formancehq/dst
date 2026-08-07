@@ -82,6 +82,12 @@ type State struct {
 	// predicted to conflict. Not hashed (see hash): folded creates carry fresh
 	// references, which would defeat the volume-commutative dedup.
 	refs map[string]bool
+	// unknownTxs are creates folded from not-yet-drained operations: their server
+	// id is unknowable (a Postgres sequence, gapped by conflicts), so they carry no
+	// id and are matched by content in a query window. Always empty on committed
+	// modelState (drained txs have real ids in txs); populated only while
+	// candidateBases folds in-flight/pending ops.
+	unknownTxs []*txRecord
 }
 
 func NewState() State {
@@ -111,7 +117,12 @@ func (s State) clone() State {
 		refs[k] = true
 	}
 
-	return State{volumes: volumes, txs: txs, refs: refs}
+	return State{
+		volumes:    volumes,
+		txs:        txs,
+		refs:       refs,
+		unknownTxs: append([]*txRecord(nil), s.unknownTxs...),
+	}
 }
 
 // vol returns the cell's volumes, or the zero pair if absent.
@@ -215,6 +226,10 @@ func (s *State) applyOne(op Operation) OrderResult {
 		if !ok {
 			return OrderResult{Reason: reasonInsufficientFund}
 		}
+		// Record the created transaction with no id — the server assigns it a
+		// sequence value the model can't predict. A query window matches it by
+		// content. (validateCommit clears these once the real id is known.)
+		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: op.postings, reference: op.reference, timestamp: op.timestamp})
 		return OrderResult{OK: true, PCV: pcv}
 
 	case opRevert:
@@ -235,8 +250,12 @@ func (s *State) applyOne(op Operation) OrderResult {
 		if !committed {
 			return OrderResult{Reason: reasonInsufficientFund}
 		}
-		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true}
+		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true, timestamp: rec.timestamp}
 		s.txs[op.targetID] = next
+		// The revert also creates a new reversing transaction (reversed postings, no
+		// reference) with a server-assigned id — fold it as an unknown-id create so a
+		// query window can match it by content. (validateCommit clears these.)
+		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: reversed})
 
 		return OrderResult{OK: true, PCV: pcv}
 

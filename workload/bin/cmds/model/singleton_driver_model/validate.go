@@ -75,6 +75,10 @@ func (c *Checker) validateCommit(op Operation, data []*shared.V2Transaction) {
 		}
 	}
 
+	// The committed apply folded its own creates into unknownTxs; recordTx has now
+	// recorded them with their real ids, so drop the id-less copies — modelState
+	// only ever holds drained, identified transactions.
+	res.State.unknownTxs = nil
 	c.modelState = res.State
 	dbg("COMMIT OK: ledger=%s ids=%s op=%s", c.ledger, txIDs(data), renderOp(op))
 }

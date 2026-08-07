@@ -131,7 +131,7 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 		PageSize: pointer.For(int64(pageSize)),
 		Reverse:  pointer.For(reverse),
 		Sort:     sortParam,
-		Query:    boundedTxQuery(filter, frontier),
+		Query:    txQuery(filter),
 	}
 
 	resp, err := cl.Ledger.V2.ListTransactions(ctx, req)
@@ -155,27 +155,24 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	c.validateTransactionQuery(oR, readID, filter, frontier, descending, pageSize, serverTxs)
 }
 
-// boundedTxQuery renders the generated filter conjoined with id <= frontier — the
-// bound that makes the window deterministic. With no generated filter it is the
-// bound alone.
-func boundedTxQuery(filter txFilter, frontier uint64) map[string]any {
-	bound := map[string]any{"$lte": map[string]any{"id": frontier}}
+// txQuery renders the generated filter to the v2 DSL, or nil for the universe.
+// The query is unbounded: in-flight creates the server has committed may appear
+// in the page, matched by content (they have no model-predictable id).
+func txQuery(filter txFilter) map[string]any {
 	if filter == nil {
-		return bound
+		return nil
 	}
 
-	return map[string]any{"$and": []map[string]any{filter.toQuery(), bound}}
+	return filter.toQuery()
 }
 
-// validateTransactionQuery checks a ListTransactions page. The window's tx set is
-// fixed (committed txs with id <= frontier), but a tx's reverted status is mutable
-// by an in-flight revert and metadata (which a filter may test) lives on the
-// register track, so the page is legal iff some candidate base and some admissible
-// transaction-metadata assignment reproduce the ordered window element-for-element
-// — candidateBases folds in-flight reverts, flipping targets' reverted flags,
-// while folded creates (unknown id > frontier) never enter the bounded window;
-// enumerateMeta supplies each row's metadata for both the filter and the per-row
-// comparison under one consistent snapshot.
+// validateTransactionQuery checks a ListTransactions page. The page is legal iff
+// some candidate base and some admissible transaction-metadata assignment reproduce
+// it (transactionPageMatches): drained txs (id <= frontier) match exactly and in
+// order, while in-flight creates/reverts the candidate folds — whose ids the model
+// can't predict — match by content in any order past the frontier. candidateBases
+// supplies the fold (and reverted-flag flips); enumerateMeta supplies each drained
+// row's metadata under one consistent snapshot.
 func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) {
 	c.mu.Lock()
 	matched := false
@@ -211,28 +208,178 @@ func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter
 	}
 }
 
-// transactionPageMatches reports whether the (base, assign) snapshot reproduces the
-// server page exactly: ordered ids, each row's immutable fields, and each row's
-// metadata under the assignment.
+// transactionPageMatches reports whether the server page is a legal window over the
+// (base, assign) snapshot. Rows with id <= frontier are drained: matched exactly by
+// id, content, and metadata, as an ordered prefix of the drained window. Rows with
+// id > frontier are in-flight creates/reverts folded into base.unknownTxs — the
+// model can't predict their ids, so they are matched by content in any order, and a
+// full page may legally show only a subset of them (truncation at the drained
+// boundary). Folded rows sort above all drained ones, so descending shows folded
+// first, ascending shows drained first.
 func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) bool {
-	want := transactionWindow(base, assign, filter, frontier, descending, pageSize)
-	if len(want) != len(serverTxs) {
+	drained := drainedMatching(base, assign, filter, frontier, descending)
+
+	// The page is two contiguous blocks (folded, drained), ordered by direction;
+	// reject an interleaving.
+	var sFold, sDrain []shared.V2Transaction
+	switchedToSecond := false
+	for _, st := range serverTxs {
+		if st.ID == nil {
+			return false
+		}
+		inFirstRegion := (st.ID.Uint64() > frontier) == descending
+		if inFirstRegion {
+			if switchedToSecond {
+				return false
+			}
+		} else {
+			switchedToSecond = true
+		}
+		if st.ID.Uint64() > frontier {
+			sFold = append(sFold, st)
+		} else {
+			sDrain = append(sDrain, st)
+		}
+	}
+
+	// Drained rows are a prefix of the drained window, matched by id + content +
+	// metadata.
+	if len(sDrain) > len(drained) {
 		return false
 	}
-	for i, id := range want {
-		st := serverTxs[i]
-		if st.ID == nil || st.ID.Uint64() != id {
+	for i, st := range sDrain {
+		id := st.ID.Uint64()
+		if id != drained[i] {
 			return false
 		}
 		idStr := strconv.FormatUint(id, 10)
-		if !txRecordMatchesServer(base.txs[idStr], st) {
-			return false
-		}
-		if !metaRowMatch(assign.meta(metaTransaction, idStr), st.Metadata) {
+		if !txRecordMatchesServer(base.txs[idStr], st) || !metaRowMatch(assign.meta(metaTransaction, idStr), st.Metadata) {
 			return false
 		}
 	}
-	return true
+
+	// Folded rows match by content against folded model entries, consuming definite
+	// (triTrue) entries first so completeness can require them.
+	verdict := make([]tri, len(base.unknownTxs))
+	reqTotal := 0
+	for i, rec := range base.unknownTxs {
+		verdict[i] = foldedVerdict(filter, rec, frontier)
+		if verdict[i] == triTrue {
+			reqTotal++
+		}
+	}
+	consumed := make([]bool, len(base.unknownTxs))
+	reqConsumed := 0
+	for _, st := range sFold {
+		if i := matchFolded(base.unknownTxs, verdict, consumed, triTrue, st); i >= 0 {
+			consumed[i] = true
+			reqConsumed++
+			continue
+		}
+		if i := matchFolded(base.unknownTxs, verdict, consumed, triNull, st); i >= 0 {
+			consumed[i] = true
+			continue
+		}
+		return false // server row matches no admissible folded transaction
+	}
+
+	// Completeness: on a non-full page everything is shown, so every drained and
+	// every definite folded row must be present. On a full page the second region
+	// (drained for descending, folded for ascending) may be truncated; the first
+	// region is fully present only if any second-region row appears.
+	full := len(serverTxs) == pageSize
+	drainedAll := len(sDrain) == len(drained)
+	reqFoldAll := reqConsumed == reqTotal
+
+	if !full {
+		return drainedAll && reqFoldAll
+	}
+	if descending {
+		if len(sDrain) > 0 {
+			return reqFoldAll // a drained row appeared ⟹ all folded shown first
+		}
+		return true // page entirely folded (a truncated subset)
+	}
+	if len(sFold) > 0 {
+		return drainedAll // a folded row appeared ⟹ all drained shown first
+	}
+	return true // page entirely drained (a truncated prefix)
+}
+
+// matchFolded returns the index of an unconsumed folded entry with the given
+// verdict whose content matches st, or -1.
+func matchFolded(folded []*txRecord, verdict []tri, consumed []bool, want tri, st shared.V2Transaction) int {
+	for i, rec := range folded {
+		if consumed[i] || verdict[i] != want {
+			continue
+		}
+		if txRecordMatchesServer(rec, st) {
+			return i
+		}
+	}
+	return -1
+}
+
+// drainedMatching returns the ids of drained transactions (id <= frontier) in base
+// matching filter, in query order (descending id or ascending). No page cap.
+func drainedMatching(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool) []uint64 {
+	var ids []uint64
+	for idStr, rec := range base.txs {
+		id, err := strconv.ParseUint(idStr, 10, 64)
+		if err != nil || id > frontier {
+			continue
+		}
+		if filter == nil || filter.match(id, rec, assign) == triTrue {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	if descending {
+		reverseUint64(ids)
+	}
+	return ids
+}
+
+// foldedVerdict evaluates filter against a folded transaction whose id is unknown
+// but greater than frontier: triTrue = definitely matches, triFalse = definitely
+// excluded, triNull = uncertain (its id, absent reference, or unmodelled metadata
+// could go either way), which the matcher treats as an optional row.
+func foldedVerdict(f txFilter, rec *txRecord, frontier uint64) tri {
+	if f == nil {
+		return triTrue
+	}
+	switch x := f.(type) {
+	case txReverted:
+		return triOf(rec.reverted == bool(x))
+	case txID:
+		// A threshold at or below frontier decides it (id > frontier); above is
+		// uncertain.
+		if x.val > frontier {
+			return triNull
+		}
+		switch x.op {
+		case "$gte", "$gt":
+			return triTrue
+		default: // $match, $lte, $lt
+			return triFalse
+		}
+	case txReference:
+		if rec.reference == "" {
+			return triNull
+		}
+		return triOf(rec.reference == string(x))
+	case txAddr:
+		return x.match(0, rec, nil)
+	case txMetaExists, txMetaMatch:
+		return triNull
+	case txAnd:
+		return triAnd(foldedVerdict(x[0], rec, frontier), foldedVerdict(x[1], rec, frontier))
+	case txOr:
+		return triOr(foldedVerdict(x[0], rec, frontier), foldedVerdict(x[1], rec, frontier))
+	case txNot:
+		return triNot(foldedVerdict(x[0], rec, frontier))
+	}
+	return triNull
 }
 
 // modelTransactionWindow returns the window on committed modelState, for a
