@@ -25,6 +25,9 @@ push-daily-run:
 push-instrumented-ledger:
 	just image/push
 
+test-model duration='30':
+	./run_model_test.sh {{duration}}
+
 deploy-local:
 	#!/usr/bin/env bash
 

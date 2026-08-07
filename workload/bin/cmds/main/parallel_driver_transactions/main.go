@@ -16,6 +16,7 @@ import (
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/operations"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/sdkerrors"
 	"github.com/formancehq/formance-sdk-go/v3/pkg/models/shared"
+	"github.com/formancehq/go-libs/v2/pointer"
 )
 
 func main() {
@@ -149,7 +150,7 @@ func CreateRandomNumscriptTransaction(
 		Ledger: ledger,
 		V2PostTransaction: shared.V2PostTransaction{
 			Script: &shared.V2PostTransactionScript{
-				Plain: `
+				Plain: pointer.For(`
 				vars {
 					account $from
 					account $to
@@ -159,7 +160,7 @@ func CreateRandomNumscriptTransaction(
 					source = $from allowing unbounded overdraft
 					destination = $to
 				)
-				`,
+				`),
 				Vars: map[string]string{
 					"from":   internal.GetRandomAddress(),
 					"to":     internal.GetRandomAddress(),
