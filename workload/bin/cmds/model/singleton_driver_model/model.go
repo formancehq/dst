@@ -70,11 +70,16 @@ type txRecord struct {
 	// the server assigned it (default now, or a revert's inherited date), in which
 	// case reads do not check it.
 	timestamp *time.Time
-	// metadata is the transaction's create-time metadata, set only on folded
-	// unknown-id entries (a not-yet-committed tx has no id, so no later write can
-	// target it — its create-time metadata is all it has). Drained txs carry their
-	// metadata on the register track instead.
+	// metadata is the transaction's create-time metadata. Create-time metadata is
+	// effective-dated at the tx's timestamp, so under a past pit a returned tx shows
+	// exactly this (post-creation writes are commit-dated, hence after a past pit).
+	// Non-pit reads validate metadata on the register track instead.
 	metadata map[string]string
+	// revertedAt is the effective date at which the tx became reverted, for pit
+	// masking: nil means not reverted, or reverted at commit time (a normal revert,
+	// which is after any past pit); a non-nil value is an atEffectiveDate revert's
+	// inherited (possibly backdated) date.
+	revertedAt *time.Time
 }
 
 // State is one ledger's model: the per-cell volume table and the committed
@@ -255,13 +260,20 @@ func (s *State) applyOne(op Operation) OrderResult {
 		if !committed {
 			return OrderResult{Reason: reasonInsufficientFund}
 		}
-		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true, timestamp: rec.timestamp}
+		// The revert's effective date is the original's timestamp when atEffectiveDate
+		// (possibly backdated), else commit time — represented as nil ("after any past
+		// pit"). It dates both the target's reverted state and the reversing tx.
+		var effDate *time.Time
+		if op.atEffectiveDate {
+			effDate = rec.timestamp
+		}
+		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true, timestamp: rec.timestamp, metadata: rec.metadata, revertedAt: effDate}
 		s.txs[op.targetID] = next
 		// The revert also creates a new reversing transaction (reversed postings, no
-		// reference, carrying the revert's own metadata) with a server-assigned id —
-		// fold it as an unknown-id create so a query window can match it by content.
-		// (validateCommit clears these.)
-		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: reversed, metadata: op.metadata})
+		// reference, carrying the revert's own metadata, dated at the revert's
+		// effective date) with a server-assigned id — fold it as an unknown-id create
+		// so a query window can match it by content. (validateCommit clears these.)
+		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: reversed, metadata: op.metadata, timestamp: effDate})
 
 		return OrderResult{OK: true, PCV: pcv}
 
@@ -322,9 +334,10 @@ func reversePostings(ps []Posting) []Posting {
 }
 
 // recordTx records a committed transaction by its server-assigned id. Called by
-// the commit cross-check, which learns the id from the response.
-func (s *State) recordTx(id string, postings []Posting, reference string, timestamp *time.Time) {
-	s.txs[id] = &txRecord{postings: postings, reference: reference, timestamp: timestamp}
+// the commit cross-check, which learns the id from the response. metadata is the
+// tx's create-time metadata, kept for pit reads.
+func (s *State) recordTx(id string, postings []Posting, reference string, timestamp *time.Time, metadata map[string]string) {
+	s.txs[id] = &txRecord{postings: postings, reference: reference, timestamp: timestamp, metadata: metadata}
 	if reference != "" {
 		s.refs[reference] = true
 	}

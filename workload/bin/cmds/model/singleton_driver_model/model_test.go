@@ -165,7 +165,7 @@ func TestApplyBulkAtomic(t *testing.T) {
 func TestApplyRevert(t *testing.T) {
 	s := NewState()
 	s = s.Apply(tx(p("world", "a", "USD", 100))).State
-	s.recordTx("7", []Posting{p("world", "a", "USD", 100)}, "", nil)
+	s.recordTx("7", []Posting{p("world", "a", "USD", 100)}, "", nil, nil)
 
 	r := s.Apply(revert("7"))
 	if !r.OK {
@@ -188,7 +188,7 @@ func TestApplyRevertForceHonoursFundsCheck(t *testing.T) {
 	setup := func() State {
 		s := NewState()
 		s = s.Apply(tx(p("world", "a", "USD", 100))).State
-		s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "", nil)
+		s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "", nil, nil)
 		// Drain a so it can't cover the reversal.
 		return s.Apply(tx(p("a", "b", "USD", 100))).State
 	}
@@ -206,7 +206,7 @@ func TestApplyRevertForceHonoursFundsCheck(t *testing.T) {
 // reference is rejected CONFLICT; a fresh reference commits.
 func TestApplyCreateRejections(t *testing.T) {
 	s := NewState().Apply(tx(p("world", "a", "USD", 100))).State
-	s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "r1", nil)
+	s.recordTx("1", []Posting{p("world", "a", "USD", 100)}, "r1", nil, nil)
 
 	if r := s.Apply(Operation{kind: opCreateTx, reference: "fresh"}); r.OK || r.Reason != "NO_POSTINGS" {
 		t.Fatalf("empty create: OK=%v reason=%q, want !OK NO_POSTINGS", r.OK, r.Reason)
@@ -235,7 +235,7 @@ func TestApplyRevertNotFound(t *testing.T) {
 func TestCandidateBasesDistinguishesReverted(t *testing.T) {
 	c := NewChecker("L")
 	c.modelState = c.modelState.Apply(tx(p("world", "a", "USD", 100))).State
-	c.modelState.recordTx("5", []Posting{p("world", "a", "USD", 100)}, "", nil)
+	c.modelState.recordTx("5", []Posting{p("world", "a", "USD", 100)}, "", nil, nil)
 	c.inflight[1] = revert("5")
 	c.ticketSeq.Store(1)
 

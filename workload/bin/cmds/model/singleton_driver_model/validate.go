@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/formancehq/dst/workload/internal"
@@ -68,10 +69,16 @@ func (c *Checker) validateCommit(op Operation, data []*shared.V2Transaction) {
 	for i, sub := range subs {
 		switch sub.kind {
 		case opCreateTx:
-			res.State.recordTx(data[i].GetID().String(), sub.postings, sub.reference, sub.timestamp)
+			res.State.recordTx(data[i].GetID().String(), sub.postings, sub.reference, sub.timestamp, sub.metadata)
 		case opRevert:
 			orig := c.modelState.txs[sub.targetID]
-			res.State.recordTx(data[i].GetID().String(), reversePostings(orig.postings), "", nil)
+			// The reversing tx is effective-dated at the original's timestamp when
+			// atEffectiveDate, else commit time (nil); it carries the revert's metadata.
+			var revTs *time.Time
+			if sub.atEffectiveDate {
+				revTs = orig.timestamp
+			}
+			res.State.recordTx(data[i].GetID().String(), reversePostings(orig.postings), "", revTs, sub.metadata)
 		}
 	}
 

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/antithesishq/antithesis-sdk-go/assert"
 	"github.com/antithesishq/antithesis-sdk-go/random"
@@ -117,6 +118,15 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	}
 	pageSize := queryPageSize()
 
+	// ~1/3 of tx queries carry a past pit drawn from the backdated range, so it
+	// splits the backdated transactions (some visible, some not) and excludes every
+	// server-dated (~now) one — a query as of the current instant adds no coverage.
+	var pit *time.Time
+	if random.RandomChoice([]uint8{0, 1, 2}) == 0 {
+		ts := backdatedTimestamp()
+		pit = &ts
+	}
+
 	c.mu.Lock()
 	readID := c.registerRead()
 	frontier := drainedFrontier(c.modelState)
@@ -131,6 +141,7 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 		PageSize: pointer.For(int64(pageSize)),
 		Reverse:  pointer.For(reverse),
 		Sort:     sortParam,
+		Pit:      pit,
 		Query:    txQuery(filter),
 	}
 
@@ -152,7 +163,7 @@ func runTransactionQuery(ctx context.Context, cl *client.Formance, c *Checker) {
 	}
 
 	serverTxs := resp.V2TransactionsCursorResponse.Cursor.Data
-	c.validateTransactionQuery(oR, readID, filter, frontier, descending, pageSize, serverTxs)
+	c.validateTransactionQuery(oR, readID, filter, frontier, descending, pageSize, pit, serverTxs)
 }
 
 // txQuery renders the generated filter to the v2 DSL, or nil for the universe.
@@ -173,12 +184,12 @@ func txQuery(filter txFilter) map[string]any {
 // can't predict — match by content in any order past the frontier. candidateBases
 // supplies the fold (and reverted-flag flips); enumerateMeta supplies each drained
 // row's metadata under one consistent snapshot.
-func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) {
+func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter, frontier uint64, descending bool, pageSize int, pit *time.Time, serverTxs []shared.V2Transaction) {
 	c.mu.Lock()
 	matched := false
 	c.candidateBases(maxTicket, func(base State) bool {
 		enumerated := c.metaStore.enumerateMeta(metaTransaction, dR, maxTicket, func(assign metaAssign) bool {
-			if transactionPageMatches(base, assign, filter, frontier, descending, pageSize, serverTxs) {
+			if transactionPageMatches(base, assign, filter, frontier, descending, pageSize, pit, serverTxs) {
 				matched = true
 				return true
 			}
@@ -216,8 +227,8 @@ func (c *Checker) validateTransactionQuery(maxTicket, dR uint64, filter txFilter
 // full page may legally show only a subset of them (truncation at the drained
 // boundary). Folded rows sort above all drained ones, so descending shows folded
 // first, ascending shows drained first.
-func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pageSize int, serverTxs []shared.V2Transaction) bool {
-	drained := drainedMatching(base, assign, filter, frontier, descending)
+func transactionPageMatches(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pageSize int, pit *time.Time, serverTxs []shared.V2Transaction) bool {
+	drained := drainedMatching(base, assign, filter, frontier, descending, pit)
 
 	// The page is two contiguous blocks (folded, drained), ordered by direction;
 	// reject an interleaving.
@@ -253,16 +264,30 @@ func transactionPageMatches(base State, assign metaAssign, filter txFilter, fron
 			return false
 		}
 		idStr := strconv.FormatUint(id, 10)
-		if !txRecordMatchesServer(base.txs[idStr], st) || !metaRowMatch(assign.meta(metaTransaction, idStr), st.Metadata) {
+		rec := base.txs[idStr]
+		if !txImmutableMatches(rec, st) || revertedAsOf(rec, pit) != st.Reverted {
+			return false
+		}
+		// As of pit a row shows its create-time metadata; the register holds the
+		// current metadata for a non-pit read.
+		model := assign.meta(metaTransaction, idStr)
+		if pit != nil {
+			model = rec.metadata
+		}
+		if !metaRowMatch(model, st.Metadata) {
 			return false
 		}
 	}
 
-	// Folded rows match by content against folded model entries, consuming definite
-	// (triTrue) entries first so completeness can require them.
+	// Folded rows match by content against folded model entries visible as of pit,
+	// consuming definite (triTrue) entries first so completeness can require them.
 	verdict := make([]tri, len(base.unknownTxs))
 	reqTotal := 0
 	for i, rec := range base.unknownTxs {
+		if !txVisibleAsOf(rec, pit) {
+			verdict[i] = triFalse
+			continue
+		}
 		verdict[i] = foldedVerdict(filter, rec, frontier)
 		if verdict[i] == triTrue {
 			reqTotal++
@@ -322,11 +347,14 @@ func matchFolded(folded []*txRecord, verdict []tri, consumed []bool, want tri, s
 
 // drainedMatching returns the ids of drained transactions (id <= frontier) in base
 // matching filter, in query order (descending id or ascending). No page cap.
-func drainedMatching(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool) []uint64 {
+func drainedMatching(base State, assign metaAssign, filter txFilter, frontier uint64, descending bool, pit *time.Time) []uint64 {
 	var ids []uint64
 	for idStr, rec := range base.txs {
 		id, err := strconv.ParseUint(idStr, 10, 64)
 		if err != nil || id > frontier {
+			continue
+		}
+		if !txVisibleAsOf(rec, pit) {
 			continue
 		}
 		if filter == nil || filter.match(id, rec, assign) == triTrue {
@@ -445,10 +473,14 @@ func transactionWindow(s State, assign metaAssign, filter txFilter, frontier uin
 // reference, and (when the model predicts one) timestamp. Metadata is validated
 // separately on the register track.
 func txRecordMatchesServer(rec *txRecord, st shared.V2Transaction) bool {
+	return txImmutableMatches(rec, st) && rec.reverted == st.Reverted
+}
+
+// txImmutableMatches checks the fields a pit never changes: postings, reference,
+// and (when the model predicts one) timestamp. reverted is checked separately
+// because a pit masks it.
+func txImmutableMatches(rec *txRecord, st shared.V2Transaction) bool {
 	if rec == nil {
-		return false
-	}
-	if rec.reverted != st.Reverted {
 		return false
 	}
 	ref := ""
@@ -463,6 +495,29 @@ func txRecordMatchesServer(rec *txRecord, st shared.V2Transaction) bool {
 	}
 
 	return postingsEqual(rec.postings, fromSDKPostings(st.Postings))
+}
+
+// revertedAsOf is a tx's reverted status as of pit: unmasked when pit is nil, else
+// true only if the revert's effective date is at or before pit (a normal revert's
+// nil revertedAt means commit time, after any past pit).
+func revertedAsOf(rec *txRecord, pit *time.Time) bool {
+	if !rec.reverted {
+		return false
+	}
+	if pit == nil {
+		return true
+	}
+	return rec.revertedAt != nil && !rec.revertedAt.After(*pit)
+}
+
+// txVisibleAsOf reports whether a tx exists as of pit: its effective timestamp is
+// at or before pit. A nil model timestamp is a server-assigned (~now) date, after
+// any past pit, so not visible.
+func txVisibleAsOf(rec *txRecord, pit *time.Time) bool {
+	if pit == nil {
+		return true
+	}
+	return rec.timestamp != nil && !rec.timestamp.After(*pit)
 }
 
 // --- Filter generation ---------------------------------------------------
