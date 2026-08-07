@@ -70,6 +70,11 @@ type txRecord struct {
 	// the server assigned it (default now, or a revert's inherited date), in which
 	// case reads do not check it.
 	timestamp *time.Time
+	// metadata is the transaction's create-time metadata, set only on folded
+	// unknown-id entries (a not-yet-committed tx has no id, so no later write can
+	// target it — its create-time metadata is all it has). Drained txs carry their
+	// metadata on the register track instead.
+	metadata map[string]string
 }
 
 // State is one ledger's model: the per-cell volume table and the committed
@@ -229,7 +234,7 @@ func (s *State) applyOne(op Operation) OrderResult {
 		// Record the created transaction with no id — the server assigns it a
 		// sequence value the model can't predict. A query window matches it by
 		// content. (validateCommit clears these once the real id is known.)
-		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: op.postings, reference: op.reference, timestamp: op.timestamp})
+		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: op.postings, reference: op.reference, timestamp: op.timestamp, metadata: op.metadata})
 		return OrderResult{OK: true, PCV: pcv}
 
 	case opRevert:
@@ -253,9 +258,10 @@ func (s *State) applyOne(op Operation) OrderResult {
 		next := &txRecord{postings: rec.postings, reference: rec.reference, reverted: true, timestamp: rec.timestamp}
 		s.txs[op.targetID] = next
 		// The revert also creates a new reversing transaction (reversed postings, no
-		// reference) with a server-assigned id — fold it as an unknown-id create so a
-		// query window can match it by content. (validateCommit clears these.)
-		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: reversed})
+		// reference, carrying the revert's own metadata) with a server-assigned id —
+		// fold it as an unknown-id create so a query window can match it by content.
+		// (validateCommit clears these.)
+		s.unknownTxs = append(s.unknownTxs, &txRecord{postings: reversed, metadata: op.metadata})
 
 		return OrderResult{OK: true, PCV: pcv}
 

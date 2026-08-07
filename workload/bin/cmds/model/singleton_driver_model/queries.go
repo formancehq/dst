@@ -313,7 +313,7 @@ func matchFolded(folded []*txRecord, verdict []tri, consumed []bool, want tri, s
 		if consumed[i] || verdict[i] != want {
 			continue
 		}
-		if txRecordMatchesServer(rec, st) {
+		if txRecordMatchesServer(rec, st) && metaRowMatch(rec.metadata, st.Metadata) {
 			return i
 		}
 	}
@@ -342,8 +342,10 @@ func drainedMatching(base State, assign metaAssign, filter txFilter, frontier ui
 
 // foldedVerdict evaluates filter against a folded transaction whose id is unknown
 // but greater than frontier: triTrue = definitely matches, triFalse = definitely
-// excluded, triNull = uncertain (its id, absent reference, or unmodelled metadata
-// could go either way), which the matcher treats as an optional row.
+// excluded, triNull = uncertain (an id threshold above frontier, or an absent
+// reference under SQL NULL), which the matcher treats as an optional row. Content
+// the model knows for a not-yet-committed tx — postings, reference, and create-time
+// metadata — is evaluated exactly.
 func foldedVerdict(f txFilter, rec *txRecord, frontier uint64) tri {
 	if f == nil {
 		return triTrue
@@ -370,8 +372,12 @@ func foldedVerdict(f txFilter, rec *txRecord, frontier uint64) tri {
 		return triOf(rec.reference == string(x))
 	case txAddr:
 		return x.match(0, rec, nil)
-	case txMetaExists, txMetaMatch:
-		return triNull
+	case txMetaExists:
+		_, ok := rec.metadata[string(x)]
+		return triOf(ok)
+	case txMetaMatch:
+		v, ok := rec.metadata[x.key]
+		return triOf(ok && v == x.val)
 	case txAnd:
 		return triAnd(foldedVerdict(x[0], rec, frontier), foldedVerdict(x[1], rec, frontier))
 	case txOr:
