@@ -8,15 +8,12 @@ jobs:
     name: Push instrumented ledger
     runs-on: namespace-profile-linux-amd64-4vcpu
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: namespacelabs/nscloud-checkout-action@v9
         with:
           fetch-depth: 0
+          dissociate: true
 
-      - name: Setup Environment
-        uses: ./.github/actions/default
-        with:
-          token: ${{ secrets.NUMARY_GITHUB_TOKEN }}
+      - uses: formancehq/ci/actions/setup-nix@main
 
 
       - name: Set up Docker Buildx
