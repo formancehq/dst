@@ -2,7 +2,7 @@ module github.com/formancehq/dst/workload
 
 go 1.24.4
 
-toolchain go1.26.10
+toolchain go1.27.3
 
 require (
 	github.com/alitto/pond v1.8.3

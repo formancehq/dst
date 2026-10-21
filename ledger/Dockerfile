@@ -1,5 +1,6 @@
 # Compiler
-FROM golang:1.26.10-trixie AS compiler
+FROM golang:1.27.3-trixie AS compiler
+ENV GOTOOLCHAIN=local
 
 RUN apt-get update && apt-get install -y bash git gcc
 

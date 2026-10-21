@@ -1,5 +1,5 @@
 {
-  description = "A Nix-flake-based Go 1.26 development environment";
+  description = "A Nix-flake-based Go 1.27.3 development environment";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.*.tar.gz";
@@ -53,11 +53,11 @@
     in
     {
       overlays.default = final: prev: {
-        go = final.callPackage "${go-tooling}/pkgs/development/compilers/go/1.26.nix" {
-          buildGo126Module = final.buildGoModule;
+        go = final.callPackage "${go-tooling}/pkgs/development/compilers/go/1.27.nix" {
+          buildGo127Module = final.buildGo127Module;
         };
-        buildGoModule = prev.buildGoModule.override { go = final.go; };
-        mockgen = prev.mockgen.override { inherit (final) buildGoModule; };
+        buildGo127Module = prev.buildGoModule.override { go = final.go; };
+        mockgen = prev.mockgen.override { buildGoModule = final.buildGo127Module; };
         golangci-lint = let
           go127 = final.callPackage "${go-tooling}/pkgs/development/compilers/go/1.27.nix" {
             buildGo127Module = build127;
@@ -78,6 +78,8 @@
       devShells = forEachSupportedSystem ({ pkgs, system }:
         {
           default = pkgs.mkShell {
+            GOTOOLCHAIN = "local";
+            GOROOT = "${pkgs.go}/share/go";
             packages = with pkgs; [
               go
               gotools
