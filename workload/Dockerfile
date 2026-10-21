@@ -1,5 +1,5 @@
 # Compiler
-FROM golang:1.24-trixie AS compiler
+FROM golang:1.26.10-trixie AS compiler
 
 RUN apt-get update && apt-get install -y bash git gcc
 
