@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"log"
 	"strconv"
 	"time"
 
@@ -29,7 +30,11 @@ const AVAILABILITY_ASSERTIONS_SAFETY_MARGIN int64 = 5
 
 func FaultsActive(ctx context.Context) bool {
 	etcdClient := NewEtcdClient()
-	defer etcdClient.Close()
+	defer func() {
+		if err := etcdClient.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
 	lastPause, err := etcdClient.Get(ctx, "/last_pause")
 	if err != nil {

@@ -32,7 +32,11 @@ func main() {
 	pool := pond.New(10, 10e3)
 
 	etcd := internal.NewEtcdClient()
-	defer etcd.Close()
+	defer func() {
+		if err := etcd.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
 	accounts, err := internal.ListAccounts(ctx, client, ledger)
 	if err != nil {
