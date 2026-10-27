@@ -1,5 +1,6 @@
 # Compiler
-FROM golang:1.24-trixie AS compiler
+FROM golang:1.27.3-trixie AS compiler
+ENV GOTOOLCHAIN=local
 
 RUN apt-get update && apt-get install -y bash git gcc
 
@@ -16,7 +17,7 @@ WORKDIR /instrumented/customer
 
 RUN go build -o /init ./bin/init
 RUN mkdir -p /cmds
-RUN for file in $(ls ./bin/cmds/); do cp ./github.com_V_formancehq_V_dst_V_workload_antithesis_catalog.go ./bin/cmds/$file; go build -race -o /cmds/$file ./bin/cmds/$file; done
+RUN for file in $(ls ./bin/cmds/); do go build -race -o /cmds/$file ./bin/cmds/$file; done
 
 # Runner
 FROM debian:trixie

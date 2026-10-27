@@ -1,8 +1,20 @@
 {
-  description = "A Nix-flake-based Go 1.24 development environment";
+  description = "A Nix-flake-based Go 1.27.3 development environment";
 
   inputs = {
     nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.*.tar.gz";
+
+    # Use the stable upstream compiler and matching module builder.
+    nixpkgs-go = {
+      url = "https://api.flakehub.com/f/pinned/NixOS/nixpkgs/0.2605.1016949%2Brev-1f607aa79b6356ed45d3cd3c8079c196e79efa2c/01a17424-ae2d-7b20-83c4-cf14527294c3/source.tar.gz";
+      flake = false;
+    };
+
+    # Keep golangci-lint 2.15.0; stable currently provides 2.12.2.
+    go-tooling = {
+      url = "github:NixOS/nixpkgs/8cec5ef1131078ea76689e84c362b0ed6a1fb6a1";
+      flake = false;
+    };
 
     nur = {
       url = "github:nix-community/NUR";
@@ -10,10 +22,8 @@
     };
   };
 
-  outputs = { self, nixpkgs, nur }:
+  outputs = { self, nixpkgs, nixpkgs-go, nur, go-tooling }:
     let
-      goVersion = 24;
-
       supportedSystems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -49,9 +59,17 @@
 
     in
     {
-      overlays.default = final: prev: {
-        go = final."go_1_${toString goVersion}";
-      };
+      overlays.default = final: prev:
+        let
+          goPkgs = import nixpkgs-go {
+            inherit (prev.stdenv.hostPlatform) system;
+          };
+        in {
+          go = goPkgs.go_1_27;
+          buildGo127Module = goPkgs.buildGo127Module;
+          mockgen = prev.mockgen.override { buildGoModule = goPkgs.buildGo127Module; };
+          golangci-lint = goPkgs.callPackage "${go-tooling}/pkgs/by-name/go/golangci-lint/package.nix" { };
+        };
 
       packages = forEachSupportedSystem ({ pkgs, system }: {});
 
@@ -63,6 +81,8 @@
       devShells = forEachSupportedSystem ({ pkgs, system }:
         {
           default = pkgs.mkShell {
+            GOTOOLCHAIN = "local";
+            GOROOT = "${pkgs.go}/share/go";
             packages = with pkgs; [
               go
               gotools

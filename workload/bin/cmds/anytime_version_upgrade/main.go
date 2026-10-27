@@ -86,7 +86,10 @@ func main() {
 	}
 
 	// set the version to the latest tag
-	unstructured.SetNestedField(res.Object, string(latest_tag), "spec", "version")
+	if err := unstructured.SetNestedField(res.Object, string(latest_tag), "spec", "version"); err != nil {
+		log.Printf("setting ledger version: %v", err)
+		return
+	}
 
 	_, err = dyn.Resource(gvr).Update(context.Background(), res, metav1.UpdateOptions{})
 
@@ -102,7 +105,11 @@ func main() {
 // only returns true if we were able to verify that no upgrade has taken place already
 func canUpgrade() bool {
 	etcdClient := internal.NewEtcdClient()
-	defer etcdClient.Close()
+	defer func() {
+		if err := etcdClient.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
 	lastPause, err := etcdClient.Get(context.Background(), "/upgraded")
 	if err != nil {
@@ -114,16 +121,29 @@ func canUpgrade() bool {
 
 func flagUpgradeDone() {
 	etcdClient := internal.NewEtcdClient()
-	defer etcdClient.Close()
+	defer func() {
+		if err := etcdClient.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
-	etcdClient.Put(context.Background(), "/upgraded", "true")
+	if _, err := etcdClient.Put(context.Background(), "/upgraded", "true"); err != nil {
+		log.Printf("recording completed upgrade: %v", err)
+	}
 }
 
 func flagFaultsPaused() {
 	etcdClient := internal.NewEtcdClient()
-	defer etcdClient.Close()
+	defer func() {
+		if err := etcdClient.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
 	pause_time := fmt.Sprintf("%v", time.Now().Unix())
+	if _, err := etcdClient.Put(context.Background(), "/last_pause", pause_time); err != nil {
+		log.Printf("recording fault pause: %v", err)
+		return
+	}
 	fmt.Printf("/last_pause set to %s\n", pause_time)
-	etcdClient.Put(context.Background(), "/last_pause", pause_time)
 }

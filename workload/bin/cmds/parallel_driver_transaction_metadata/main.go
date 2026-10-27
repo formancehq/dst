@@ -41,7 +41,11 @@ func main() {
 	}
 
 	etcd := internal.NewEtcdClient()
-	defer etcd.Close()
+	defer func() {
+		if err := etcd.Close(); err != nil {
+			log.Printf("closing etcd client: %v", err)
+		}
+	}()
 
 	for range count {
 		pool.Submit(func() {
